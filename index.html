@@ -177,19 +177,147 @@ function makeFighter(divisionId, gender){
   };
 }
 
+const REAL_FIGHTERS = [
+ // ===== HEAVYWEIGHT =====
+ {name:'Jon Jones', nickname:'"Bones"', division:'M_HEAVY', gender:'M', country:'EE.UU.', dob:'1987-07-19', debut:'2008-04-12', status:'retired', tier:'legend'},
+ {name:'Stipe Miocic', nickname:null, division:'M_HEAVY', gender:'M', country:'EE.UU.', dob:'1982-08-19', debut:'2010-10-01', status:'retired', tier:'legend'},
+ {name:'Daniel Cormier', nickname:'"DC"', division:'M_HEAVY', gender:'M', country:'EE.UU.', dob:'1979-03-20', debut:'2009-09-19', status:'retired', tier:'legend'},
+ {name:'Cain Velasquez', nickname:null, division:'M_HEAVY', gender:'M', country:'EE.UU.', dob:'1982-07-28', debut:'2006-10-28', status:'retired', tier:'legend'},
+ {name:'Brock Lesnar', nickname:null, division:'M_HEAVY', gender:'M', country:'EE.UU.', dob:'1977-07-12', debut:'2007-06-02', status:'retired', tier:'legend'},
+ {name:'Fabricio Werdum', nickname:'"Vai Cavalo"', division:'M_HEAVY', gender:'M', country:'Brasil', dob:'1977-07-30', debut:'2008-04-19', status:'retired', tier:'veteran'},
+ {name:'Junior Dos Santos', nickname:'"Cigano"', division:'M_HEAVY', gender:'M', country:'Brasil', dob:'1984-04-13', debut:'2008-08-09', status:'retired', tier:'legend'},
+ {name:'Tom Aspinall', nickname:null, division:'M_HEAVY', gender:'M', country:'Inglaterra', dob:'1993-02-11', debut:'2020-07-11', status:'active', tier:'elite'},
+ {name:'Ciryl Gane', nickname:'"Bon Gamin"', division:'M_HEAVY', gender:'M', country:'Francia', dob:'1990-01-12', debut:'2019-09-21', status:'active', tier:'elite'},
+ {name:'Sergei Pavlovich', nickname:null, division:'M_HEAVY', gender:'M', country:'Rusia', dob:'1991-12-08', debut:'2018-10-26', status:'active', tier:'contender'},
+ {name:'Curtis Blaydes', nickname:null, division:'M_HEAVY', gender:'M', country:'EE.UU.', dob:'1991-04-18', debut:'2016-06-18', status:'active', tier:'contender'},
+ {name:'Alexander Volkov', nickname:'"Drago"', division:'M_HEAVY', gender:'M', country:'Rusia', dob:'1988-08-24', debut:'2016-09-10', status:'active', tier:'contender'},
+
+ // ===== LIGHT HEAVYWEIGHT =====
+ {name:'Alex Pereira', nickname:'"Poatan"', division:'M_LHEAVY', gender:'M', country:'Brasil', dob:'1987-07-07', debut:'2021-11-06', status:'active', tier:'elite'},
+ {name:'Jiri Prochazka', nickname:'"Denisa"', division:'M_LHEAVY', gender:'M', country:'Rep. Checa', dob:'1992-10-14', debut:'2020-02-29', status:'active', tier:'elite'},
+ {name:'Jan Blachowicz', nickname:null, division:'M_LHEAVY', gender:'M', country:'Polonia', dob:'1983-08-24', debut:'2009-09-19', status:'active', tier:'veteran'},
+ {name:'Magomed Ankalaev', nickname:null, division:'M_LHEAVY', gender:'M', country:'Rusia', dob:'1992-06-02', debut:'2018-11-30', status:'active', tier:'elite'},
+ {name:'Glover Teixeira', nickname:null, division:'M_LHEAVY', gender:'M', country:'Brasil', dob:'1979-10-28', debut:'2012-05-05', status:'retired', tier:'legend'},
+ {name:'Mauricio Rua', nickname:'"Shogun"', division:'M_LHEAVY', gender:'M', country:'Brasil', dob:'1981-11-25', debut:'2005-05-05', status:'retired', tier:'legend'},
+ {name:'Lyoto Machida', nickname:'"The Dragon"', division:'M_LHEAVY', gender:'M', country:'Brasil', dob:'1978-10-30', debut:'2003-03-08', status:'retired', tier:'legend'},
+ {name:'Rampage Jackson', nickname:'"Rampage"', division:'M_LHEAVY', gender:'M', country:'EE.UU.', dob:'1978-06-23', debut:'2001-08-25', status:'retired', tier:'legend'},
+
+ // ===== MIDDLEWEIGHT =====
+ {name:'Israel Adesanya', nickname:'"The Last Stylebender"', division:'M_MIDDLE', gender:'M', country:'Nigeria', dob:'1989-07-22', debut:'2018-02-10', status:'active', tier:'elite'},
+ {name:'Dricus Du Plessis', nickname:'"Stillknocks"', division:'M_MIDDLE', gender:'M', country:'Sudáfrica', dob:'1994-02-14', debut:'2020-09-05', status:'active', tier:'elite'},
+ {name:'Sean Strickland', nickname:'"Tarzan"', division:'M_MIDDLE', gender:'M', country:'EE.UU.', dob:'1991-03-27', debut:'2014-05-10', status:'active', tier:'elite'},
+ {name:'Robert Whittaker', nickname:'"The Reaper"', division:'M_MIDDLE', gender:'M', country:'Australia', dob:'1990-12-20', debut:'2012-02-26', status:'active', tier:'elite'},
+ {name:'Anderson Silva', nickname:'"The Spider"', division:'M_MIDDLE', gender:'M', country:'Brasil', dob:'1975-04-14', debut:'2006-06-28', status:'retired', tier:'legend'},
+ {name:'Chael Sonnen', nickname:null, division:'M_MIDDLE', gender:'M', country:'EE.UU.', dob:'1977-04-03', debut:'2005-03-04', status:'retired', tier:'veteran'},
+ {name:'Michael Bisping', nickname:'"The Count"', division:'M_MIDDLE', gender:'M', country:'Inglaterra', dob:'1979-02-28', debut:'2006-09-23', status:'retired', tier:'legend'},
+ {name:'Vitor Belfort', nickname:'"The Phenom"', division:'M_MIDDLE', gender:'M', country:'Brasil', dob:'1977-04-01', debut:'1996-10-19', status:'retired', tier:'legend'},
+
+ // ===== WELTERWEIGHT =====
+ {name:'Kamaru Usman', nickname:'"The Nigerian Nightmare"', division:'M_WELTER', gender:'M', country:'Nigeria', dob:'1987-05-11', debut:'2012-03-03', status:'active', tier:'legend'},
+ {name:'Leon Edwards', nickname:'"Rocky"', division:'M_WELTER', gender:'M', country:'Inglaterra', dob:'1991-08-25', debut:'2014-12-13', status:'active', tier:'elite'},
+ {name:'Belal Muhammad', nickname:'"Remember The Name"', division:'M_WELTER', gender:'M', country:'EE.UU.', dob:'1990-06-09', debut:'2016-07-13', status:'active', tier:'elite'},
+ {name:'Shavkat Rakhmonov', nickname:'"Nomad"', division:'M_WELTER', gender:'M', country:'Kazajistán', dob:'1996-10-05', debut:'2019-10-04', status:'active', tier:'elite'},
+ {name:'Georges St-Pierre', nickname:'"GSP"', division:'M_WELTER', gender:'M', country:'Canadá', dob:'1981-05-19', debut:'2002-01-25', status:'retired', tier:'legend'},
+ {name:'Nick Diaz', nickname:null, division:'M_WELTER', gender:'M', country:'EE.UU.', dob:'1983-08-02', debut:'2001-08-25', status:'retired', tier:'legend'},
+ {name:'Robbie Lawler', nickname:'"Ruthless"', division:'M_WELTER', gender:'M', country:'EE.UU.', dob:'1982-03-20', debut:'2002-03-22', status:'retired', tier:'legend'},
+ {name:'Matt Hughes', nickname:null, division:'M_WELTER', gender:'M', country:'EE.UU.', dob:'1973-10-13', debut:'1998-09-24', status:'retired', tier:'legend'},
+ {name:'Tyron Woodley', nickname:'"The Chosen One"', division:'M_WELTER', gender:'M', country:'EE.UU.', dob:'1982-04-17', debut:'2009-06-06', status:'retired', tier:'veteran'},
+
+ // ===== LIGHTWEIGHT =====
+ {name:'Islam Makhachev', nickname:null, division:'M_LIGHT', gender:'M', country:'Rusia', dob:'1991-10-27', debut:'2015-03-14', status:'active', tier:'legend'},
+ {name:'Charles Oliveira', nickname:'"do Bronx"', division:'M_LIGHT', gender:'M', country:'Brasil', dob:'1989-10-17', debut:'2010-08-01', status:'active', tier:'legend'},
+ {name:'Dustin Poirier', nickname:'"The Diamond"', division:'M_LIGHT', gender:'M', country:'EE.UU.', dob:'1989-01-19', debut:'2010-01-09', status:'retired', tier:'legend'},
+ {name:'Justin Gaethje', nickname:'"The Highlight"', division:'M_LIGHT', gender:'M', country:'EE.UU.', dob:'1988-11-14', debut:'2017-07-07', status:'active', tier:'elite'},
+ {name:'Conor McGregor', nickname:'"The Notorious"', division:'M_LIGHT', gender:'M', country:'Irlanda', dob:'1988-07-14', debut:'2013-04-06', status:'active', tier:'legend'},
+ {name:'Khabib Nurmagomedov', nickname:'"The Eagle"', division:'M_LIGHT', gender:'M', country:'Rusia', dob:'1988-09-20', debut:'2008-07-26', status:'retired', tier:'legend'},
+ {name:'BJ Penn', nickname:'"The Prodigy"', division:'M_LIGHT', gender:'M', country:'EE.UU.', dob:'1978-12-13', debut:'2001-05-04', status:'retired', tier:'legend'},
+ {name:'Frankie Edgar', nickname:'"The Answer"', division:'M_LIGHT', gender:'M', country:'EE.UU.', dob:'1981-10-16', debut:'2007-04-07', status:'retired', tier:'legend'},
+ {name:'Arman Tsarukyan', nickname:null, division:'M_LIGHT', gender:'M', country:'Armenia', dob:'1996-10-11', debut:'2019-04-13', status:'active', tier:'elite'},
+
+ // ===== FEATHERWEIGHT =====
+ {name:'Alexander Volkanovski', nickname:'"The Great"', division:'M_FEATHER', gender:'M', country:'Australia', dob:'1988-09-29', debut:'2016-02-27', status:'active', tier:'legend'},
+ {name:'Ilia Topuria', nickname:'"El Matador"', division:'M_FEATHER', gender:'M', country:'España', dob:'1997-01-21', debut:'2020-10-18', status:'active', tier:'elite'},
+ {name:'Max Holloway', nickname:'"Blessed"', division:'M_FEATHER', gender:'M', country:'EE.UU.', dob:'1991-12-04', debut:'2012-02-04', status:'active', tier:'legend'},
+ {name:'Brian Ortega', nickname:'"T-City"', division:'M_FEATHER', gender:'M', country:'EE.UU.', dob:'1991-12-21', debut:'2014-10-04', status:'active', tier:'contender'},
+ {name:'Jose Aldo', nickname:'"Scarface"', division:'M_FEATHER', gender:'M', country:'Brasil', dob:'1986-09-09', debut:'2004-05-29', status:'retired', tier:'legend'},
+ {name:'Frankie Edgar Jr', nickname:null, division:'M_FEATHER', gender:'M', country:'EE.UU.', dob:'1992-01-01', debut:'2015-01-01', status:'retired', tier:'veteran'},
+
+ // ===== BANTAMWEIGHT =====
+ {name:'Merab Dvalishvili', nickname:'"The Machine"', division:'M_BANTAM', gender:'M', country:'Georgia', dob:'1991-01-10', debut:'2017-07-07', status:'active', tier:'elite'},
+ {name:'Sean O\'Malley', nickname:'"Sugar"', division:'M_BANTAM', gender:'M', country:'EE.UU.', dob:'1994-10-24', debut:'2017-12-30', status:'active', tier:'elite'},
+ {name:'Aljamain Sterling', nickname:'"Funk Master"', division:'M_BANTAM', gender:'M', country:'EE.UU.', dob:'1989-07-31', debut:'2014-08-23', status:'active', tier:'legend'},
+ {name:'TJ Dillashaw', nickname:null, division:'M_BANTAM', gender:'M', country:'EE.UU.', dob:'1986-12-07', debut:'2011-12-03', status:'retired', tier:'legend'},
+ {name:'Dominick Cruz', nickname:'"The Dominator"', division:'M_BANTAM', gender:'M', country:'EE.UU.', dob:'1985-03-09', debut:'2005-09-24', status:'retired', tier:'legend'},
+ {name:'Henry Cejudo', nickname:'"Triple C"', division:'M_BANTAM', gender:'M', country:'EE.UU.', dob:'1987-02-09', debut:'2013-11-06', status:'retired', tier:'legend'},
+ {name:'Cody Garbrandt', nickname:'"No Love"', division:'M_BANTAM', gender:'M', country:'EE.UU.', dob:'1991-08-02', debut:'2012-08-11', status:'active', tier:'veteran'},
+
+ // ===== FLYWEIGHT =====
+ {name:'Alexandre Pantoja', nickname:null, division:'M_FLY', gender:'M', country:'Brasil', dob:'1990-05-16', debut:'2011-09-23', status:'active', tier:'elite'},
+ {name:'Brandon Moreno', nickname:'"The Assassin Baby"', division:'M_FLY', gender:'M', country:'México', dob:'1993-12-07', debut:'2016-07-13', status:'active', tier:'elite'},
+ {name:'Deiveson Figueiredo', nickname:'"Deus da Guerra"', division:'M_FLY', gender:'M', country:'Brasil', dob:'1987-12-18', debut:'2017-03-11', status:'active', tier:'elite'},
+ {name:'Demetrious Johnson', nickname:'"Mighty Mouse"', division:'M_FLY', gender:'M', country:'EE.UU.', dob:'1986-08-13', debut:'2007-03-30', status:'retired', tier:'legend'},
+
+ // ===== WOMEN BANTAMWEIGHT =====
+ {name:'Amanda Nunes', nickname:'"The Lioness"', division:'W_BANTAM', gender:'F', country:'Brasil', dob:'1988-05-30', debut:'2008-03-29', status:'retired', tier:'legend'},
+ {name:'Ronda Rousey', nickname:'"Rowdy"', division:'W_BANTAM', gender:'F', country:'EE.UU.', dob:'1987-02-01', debut:'2010-11-18', status:'retired', tier:'legend'},
+ {name:'Holly Holm', nickname:'"The Preacher\'s Daughter"', division:'W_BANTAM', gender:'F', country:'EE.UU.', dob:'1981-10-17', debut:'2011-03-19', status:'active', tier:'legend'},
+ {name:'Julianna Pena', nickname:'"The Venezuelan Vixen"', division:'W_BANTAM', gender:'F', country:'EE.UU.', dob:'1989-08-17', debut:'2013-05-15', status:'active', tier:'elite'},
+ {name:'Raquel Pennington', nickname:null, division:'W_BANTAM', gender:'F', country:'EE.UU.', dob:'1988-10-27', debut:'2013-08-17', status:'active', tier:'contender'},
+ {name:'Miesha Tate', nickname:'"Cupcake"', division:'W_BANTAM', gender:'F', country:'EE.UU.', dob:'1986-08-04', debut:'2007-03-03', status:'retired', tier:'legend'},
+
+ // ===== WOMEN FLYWEIGHT =====
+ {name:'Valentina Shevchenko', nickname:'"Bullet"', division:'W_FLY', gender:'F', country:'Kirguistán', dob:'1988-03-07', debut:'2015-02-23', status:'active', tier:'legend'},
+ {name:'Alexa Grasso', nickname:null, division:'W_FLY', gender:'F', country:'México', dob:'1993-04-09', debut:'2016-11-05', status:'active', tier:'elite'},
+ {name:'Manon Fiorot', nickname:'"The Beast"', division:'W_FLY', gender:'F', country:'Francia', dob:'1990-01-27', debut:'2019-12-21', status:'active', tier:'elite'},
+
+ // ===== WOMEN FEATHERWEIGHT =====
+ {name:'Cris Cyborg', nickname:'"Cyborg"', division:'W_FEATHER', gender:'F', country:'Brasil', dob:'1985-07-09', debut:'2005-09-30', status:'retired', tier:'legend'},
+ {name:'Megan Anderson', nickname:null, division:'W_FEATHER', gender:'F', country:'Australia', dob:'1991-02-25', debut:'2016-08-27', status:'active', tier:'contender'},
+ {name:'Kayla Harrison', nickname:null, division:'W_FEATHER', gender:'F', country:'EE.UU.', dob:'1990-07-02', debut:'2018-08-25', status:'active', tier:'elite'},
+
+ // ===== WOMEN STRAWWEIGHT =====
+ {name:'Zhang Weili', nickname:'"Magnum"', division:'W_STRAW', gender:'F', country:'China', dob:'1989-08-13', debut:'2013-01-19', status:'active', tier:'legend'},
+ {name:'Rose Namajunas', nickname:'"Thug Rose"', division:'W_STRAW', gender:'F', country:'EE.UU.', dob:'1992-06-29', debut:'2014-08-23', status:'active', tier:'legend'},
+ {name:'Joanna Jedrzejczyk', nickname:'"Joanna Champion"', division:'W_STRAW', gender:'F', country:'Polonia', dob:'1987-08-18', debut:'2012-06-23', status:'retired', tier:'legend'},
+ {name:'Carla Esparza', nickname:'"Cookie Monster"', division:'W_STRAW', gender:'F', country:'EE.UU.', dob:'1987-08-15', debut:'2009-08-29', status:'retired', tier:'legend'},
+ {name:'Yan Xiaonan', nickname:null, division:'W_STRAW', gender:'F', country:'China', dob:'1989-06-30', debut:'2018-04-21', status:'active', tier:'contender'},
+];
+
+const TIER_RANGES = {
+  legend:[78,95], elite:[74,90], contender:[65,82], veteran:[60,78]
+};
+
+function makeRealFighter(rf){
+  const range = TIER_RANGES[rf.tier]||[60,80];
+  const stats={};
+  STAT_KEYS.forEach(([k])=> stats[k]=randi(range[0],range[1]));
+  const longevity = rf.status==='retired'? randi(0,25) : randi(55,100);
+  return {
+    id: uid('F'), name:rf.name, nickname:rf.nickname, gender:rf.gender, country:rf.country,
+    dob:rf.dob, debut:rf.debut, division:rf.division, stats, longevity,
+    status: rf.status==='retired'?'retired':'active',
+    injury:{active:false, untilDate:null, note:''},
+    record:{wins:0,losses:0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0},
+    bonuses:{fightOfNight:0, performanceOfNight:0},
+    titleReigns:[], fightHistory:[], lastEventSeq:null,
+    hof: rf.tier==='legend' && rf.status==='retired',
+    rankScore:0
+  };
+}
+
 function seedFighters(){
-  STATE.fighters=[];
+  STATE.fighters = REAL_FIGHTERS.map(makeRealFighter);
+  // si alguna categoría se quedara con menos de 2 peleadores, se completa con generados aleatoriamente
   DIVISIONS.forEach(div=>{
-    for(let i=0;i<2;i++){
-      STATE.fighters.push(makeFighter(div.id, div.gender));
-    }
+    const count = STATE.fighters.filter(f=>f.division===div.id).length;
+    for(let i=count;i<2;i++) STATE.fighters.push(makeFighter(div.id, div.gender));
   });
   // crear títulos de división + BMF
   STATE.titles = DIVISIONS.map(d=>({
     id: uid('T'), name: `Cinturón de ${divName(d.id)}`, divisionId:d.id, holderId:null, isInterim:false, history:[]
   }));
   STATE.titles.push({id:uid('T'), name:'Cinturón BMF', divisionId:null, holderId:null, isInterim:false, history:[]});
-  logEvent('Liga inicializada con 2 peleadores por categoría.');
+  logEvent(`Liga inicializada con ${STATE.fighters.length} peleadores (roster real + generados).`);
   saveLocal();
 }
 
@@ -200,6 +328,13 @@ function getCfg(){ return JSON.parse(localStorage.getItem(LS_CFG)||'{}'); }
 function setCfg(c){ localStorage.setItem(LS_CFG, JSON.stringify(c)); }
 
 /* ====================== MOTOR DE SIMULACIÓN ====================== */
+function winProbabilities(fA, fB){
+  const ratingA = overallRating(fA), ratingB = overallRating(fB);
+  const diff = ratingA - ratingB;
+  let probA = 1/(1+Math.pow(10,-diff/14));
+  probA = clamp(probA, 0.05, 0.95);
+  return {probA: probA*100, probB:(1-probA)*100};
+}
 function overallRating(f){
   const s=f.stats;
   let base = s.power*0.15 + s.striking*0.22 + s.wrestlingOff*0.14 + s.wrestlingDef*0.12 + s.ground*0.15 + s.cardio*0.12 + s.chin*0.10;
@@ -688,6 +823,7 @@ function tplEventBuilder(ev){
       <select class="evFighterA"></select>
       <select class="evFighterB"></select>
     </div>
+    <div class="probDisplay muted" style="text-align:center;font-size:.8rem;margin:2px 0 4px"></div>
     <div class="row">
       <select class="evTitle"><option value="">Sin título en juego</option>
         ${STATE.titles.map(t=>`<option value="${t.id}">${t.name}${t.holderId?'':' (vacante)'}</option>`).join('')}
@@ -710,6 +846,18 @@ function tplEventBuilder(ev){
   </div>`;
 }
 
+function updateProbDisplay(card){
+  const aId = card.querySelector('.evFighterA').value;
+  const bId = card.querySelector('.evFighterB').value;
+  const disp = card.querySelector('.probDisplay');
+  if(!disp) return;
+  const fA = STATE.fighters.find(x=>x.id===aId);
+  const fB = STATE.fighters.find(x=>x.id===bId);
+  if(!fA || !fB || aId===bId){ disp.textContent=''; return; }
+  const p = winProbabilities(fA, fB);
+  disp.innerHTML = `<b>${fA.name}</b> ${p.probA.toFixed(0)}%  —  ${p.probB.toFixed(0)}% <b>${fB.name}</b>`;
+}
+
 function fillFighterSelects(card){
   const divSel = card.querySelector('.evDivFilter');
   const aSel = card.querySelector('.evFighterA');
@@ -721,6 +869,9 @@ function fillFighterSelects(card){
   const optsHtml = pool.map(f=>`<option value="${f.id}">${f.name} (${divName(f.division).replace('♀ ','♀').replace('♂ ','♂')}, ${f.record.wins}-${f.record.losses})</option>`).join('');
   aSel.innerHTML = optsHtml; bSel.innerHTML = optsHtml;
   if(pool.length>1) bSel.selectedIndex=1;
+  aSel.onchange = ()=> updateProbDisplay(card);
+  bSel.onchange = ()=> updateProbDisplay(card);
+  updateProbDisplay(card);
 }
 
 function bindEvents(){
