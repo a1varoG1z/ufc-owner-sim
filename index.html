@@ -432,9 +432,12 @@ function simulateFight(fA, fB, opts={}){
   const loser = aWins? fB: fA;
 
   // chances de método según atributos del ganador vs perdedor
-  let koChance = clamp((winner.stats.power*0.6+winner.stats.striking*0.4 - loser.stats.chin*0.8)/140, 0.03, 0.62);
-  let subChance = clamp((winner.stats.ground*0.6+winner.stats.wrestlingOff*0.4 - loser.stats.wrestlingDef*0.8)/150, 0.02, 0.5);
-  let decChance = clamp(1-koChance-subChance, 0.15, 0.95);
+  // Base: potencia y striking del ganador vs resistencia del perdedor
+  let koChance = clamp((winner.stats.power*0.65+winner.stats.striking*0.35 - loser.stats.chin*0.55)/90, 0.08, 0.70);
+  // Base: suelo y wrestling ofensivo del ganador vs defensa del perdedor
+  let subChance = clamp((winner.stats.ground*0.70+winner.stats.wrestlingOff*0.30 - loser.stats.wrestlingDef*0.50)/100, 0.05, 0.55);
+  // La decisión es el método residual, sin mínimo forzado
+  let decChance = Math.max(0.10, 1 - koChance - subChance);
   const tot = koChance+subChance+decChance;
   koChance/=tot; subChance/=tot; decChance/=tot;
   const roll=Math.random();
@@ -545,8 +548,17 @@ function fighterAvailable(f){
     if(new Date(f.injury.untilDate) <= new Date(STATE.meta.currentDate)) return true;
     return false;
   }
-  // cooldown: no puede pelear si participó en el evento inmediatamente anterior (el último creado)
-  if(f.lastEventSeq!=null && f.lastEventSeq === STATE.meta.eventSeq-1) return false;
+  // cooldown realista: mínimo de meses entre peleas según historial
+  if(f.lastEventSeq!=null){
+    // Buscar la fecha del último evento en que peleó
+    const lastEv = STATE.events.find(e=>e.seq===f.lastEventSeq && e.status==='completed');
+    if(lastEv){
+      const daysSinceLast = (new Date(STATE.meta.currentDate) - new Date(lastEv.date)) / 86400000;
+      // Mínimo 3 meses (90 días) entre peleas; si el peleador tiene poca longevidad, necesita más descanso
+      const minDays = f.longevity > 60 ? 90 : (f.longevity > 30 ? 120 : 150);
+      if(daysSinceLast < minDays) return false;
+    }
+  }
   return true;
 }
 
@@ -579,7 +591,7 @@ function simulateEvent(ev){
     if(result.method==='Sumisión'){winner.record.subWins++; loser.record.subLosses++;}
     if(result.method==='Decisión'){winner.record.decWins++; loser.record.decLosses++;}
     if(result.performance){ winner.bonuses.performanceOfNight++; }
-    if(result.fightOfNight){ winner.bonuses.fightOfNight++; loser.bonuses.fightOfNight++; }
+    // El bono FOTN se asigna una sola vez al final del evento, no aquí individualmente
 
     fight.result = {
       winnerId:winner.id, loserId:loser.id, method:result.method, round:result.round, time:result.time,
@@ -623,6 +635,41 @@ function simulateEvent(ev){
     logEvent(`🥊 ${winner.name} derrota a ${loser.name} por ${result.method} (R${result.round}, ${result.time})${isTitle?' — combate de título':''}`);
   });
   ev.status='completed';
+
+  // Premio FOTN: exactamente UNA pelea de la noche por evento
+  // Se elige la pelea con mayor puntuación de entretenimiento (no-decisión, reñida, o decisión ajustada)
+  const completedFights = ev.card.filter(ft=>ft.result);
+  if(completedFights.length > 0){
+    // Calcular puntuación de entretenimiento para cada combate
+    const fotnScores = completedFights.map(ft=>{
+      const r=ft.result;
+      const fA=STATE.fighters.find(x=>x.id===ft.fighterA);
+      const fB=STATE.fighters.find(x=>x.id===ft.fighterB);
+      let score = Math.random()*30; // componente aleatoria
+      if(r.method==='KO/TKO') score += 40;
+      else if(r.method==='Sumisión') score += 30;
+      else score += 10; // decisión es menos emocionante
+      // pelea reñida (ratings similares) suma puntos
+      if(fA&&fB){
+        const diff=Math.abs(overallRating(fA)-overallRating(fB));
+        score += Math.max(0, 20-diff*2);
+      }
+      // si ya fue marcada como fightOfNight en la simulación individual, bonus
+      if(r.fightOfNight) score += 20;
+      return {ft, score};
+    });
+    fotnScores.sort((a,b)=>b.score-a.score);
+    const fotnFight = fotnScores[0].ft;
+    const fotnWinner=STATE.fighters.find(x=>x.id===fotnFight.result.winnerId);
+    const fotnLoser=STATE.fighters.find(x=>x.id===fotnFight.result.loserId);
+    // Asignar bono FOTN a ambos peleadores de esa pelea
+    if(fotnWinner) fotnWinner.bonuses.fightOfNight++;
+    if(fotnLoser) fotnLoser.bonuses.fightOfNight++;
+    fotnFight.result.isFOTN = true;
+    ev.fotnFightId = fotnFight.id;
+    logEvent(`🌟 FOTN: ${fotnWinner?fotnWinner.name:'?'} vs ${fotnLoser?fotnLoser.name:'?'} gana el premio Pelea de la Noche de ${ev.name}.`);
+  }
+
   refreshRankings();
   saveLocal();
 }
@@ -884,7 +931,7 @@ function tplEvents(){
       ${ev.card.map(ft=>{
         const a=STATE.fighters.find(x=>x.id===ft.fighterA), b=STATE.fighters.find(x=>x.id===ft.fighterB);
         const r=ft.result; const w=r?STATE.fighters.find(x=>x.id===r.winnerId):null;
-        return `<div class="muted">${a?a.name:'?'} vs ${b?b.name:'?'} → ${w?w.name:'?'} (${r?r.method:''} R${r?r.round:''})${r&&r.fightOfNight?' 🌟POTN':''}${r&&r.performance?' ⭐':''}</div>`;
+        return `<div class="muted">${r&&r.isFOTN?'🌟 <b>FOTN</b> ':''}${a?a.name:'?'} vs ${b?b.name:'?'} → ${w?w.name:'?'} (${r?r.method:''} R${r?r.round:''})${r&&r.performance?' ⭐':''}</div>`;
       }).join('')}
     </div>`).join('') || '<p class="muted">Sin eventos completados.</p>'}
   </div>`;
@@ -1004,17 +1051,60 @@ function tplStats(){
   const topWins = all.slice().sort((a,b)=>b.record.wins-a.record.wins).slice(0,8);
   const topFOTN = all.slice().sort((a,b)=>b.bonuses.fightOfNight-a.bonuses.fightOfNight).slice(0,8);
   const topPOTN = all.slice().sort((a,b)=>b.bonuses.performanceOfNight-a.bonuses.performanceOfNight).slice(0,8);
-  const block=(title,list,key,fmt)=>`<div class="card"><h3>${title}</h3><table><tbody>
-    ${list.filter(f=>fmt(f)>0).map((f,i)=>`<tr><td>${i+1}</td><td>${f.name}</td><td><b>${fmt(f)}</b></td></tr>`).join('')||'<tr><td class="muted">Sin datos aún</td></tr>'}
+
+  // Más defensas de título (suma de todas las defensas en todos sus reinados)
+  const totalDefenses = f => (f.titleReigns||[]).reduce((a,r)=>a+(r.defenses||0),0);
+  const topDefenses = all.slice().sort((a,b)=>totalDefenses(b)-totalDefenses(a)).slice(0,8);
+
+  // Mejor racha de victorias actual (contar victorias consecutivas desde el final del historial)
+  function currentStreak(f){
+    // Recorre el historial de combates de más reciente a más antiguo
+    const history = [...(f.fightHistory||[])].reverse();
+    let streak=0;
+    for(const fid of history){
+      let found=null;
+      for(const ev of STATE.events){ const ft=ev.card.find(x=>x.id===fid); if(ft&&ft.result){found=ft;break;} }
+      if(!found||!found.result) break;
+      if(found.result.winnerId===f.id) streak++;
+      else break;
+    }
+    return streak;
+  }
+  const topStreak = all.filter(f=>f.record.wins>0).slice().sort((a,b)=>currentStreak(b)-currentStreak(a)).slice(0,8);
+
+  // Mayor número de peleas (total de combates)
+  const totalFights = f => f.record.wins+f.record.losses+f.record.draws+f.record.nc;
+  const topFights = all.slice().sort((a,b)=>totalFights(b)-totalFights(a)).slice(0,8);
+
+  // Mejor porcentaje de finalizaciones (KO+SUB / victorias totales, mín 5 victorias)
+  const finishRate = f => f.record.wins>=5? Math.round((f.record.koWins+f.record.subWins)/f.record.wins*100):0;
+  const topFinish = all.filter(f=>f.record.wins>=5).slice().sort((a,b)=>finishRate(b)-finishRate(a)).slice(0,8);
+
+  // Más reinados de título
+  const totalReigns = f => (f.titleReigns||[]).length;
+  const topReigns = all.slice().sort((a,b)=>totalReigns(b)-totalReigns(a)).slice(0,8);
+
+  // Mayor GOAT score
+  const topGoat = all.slice().sort((a,b)=>goatScore(b)-goatScore(a)).slice(0,8);
+
+  const block=(title,list,fmt,extra='')=>`<div class="card"><h3>${title}${extra}</h3><table><tbody>
+    ${list.filter(f=>fmt(f)>0).map((f,i)=>`<tr><td>${i+1}</td><td>${f.name}${f.status==='retired'?' <span class="muted">(ret.)</span>':''}</td><td><b>${fmt(f)}</b></td></tr>`).join('')||'<tr><td class="muted">Sin datos aún</td></tr>'}
   </tbody></table></div>`;
+
   return `
   <div class="card"><h2>Estadísticas de la liga</h2>
   <p class="muted">${STATE.events.filter(e=>e.status==='completed').length} eventos celebrados · ${STATE.fighters.reduce((a,f)=>a+f.record.wins,0)} combates resueltos</p></div>
-  ${block('Más victorias',topWins,'wins',f=>f.record.wins)}
-  ${block('Más KO/TKO',topKO,'koWins',f=>f.record.koWins)}
-  ${block('Más sumisiones',topSub,'subWins',f=>f.record.subWins)}
-  ${block('Más Pelea de la Noche',topFOTN,'fightOfNight',f=>f.bonuses.fightOfNight)}
-  ${block('Más Actuación de la Noche',topPOTN,'performanceOfNight',f=>f.bonuses.performanceOfNight)}
+  ${block('Más victorias',topWins,f=>f.record.wins)}
+  ${block('Más KO/TKO',topKO,f=>f.record.koWins)}
+  ${block('Más sumisiones',topSub,f=>f.record.subWins)}
+  ${block('Más defensas de título',topDefenses,totalDefenses,' 🛡️')}
+  ${block('Racha de victorias actual',topStreak,currentStreak,' 🔥')}
+  ${block('Más reinados de título',topReigns,totalReigns,' 👑')}
+  ${block('Mayor % de finalizaciones',topFinish,f=>finishRate(f)+'%',' (mín. 5 victorias)')}
+  ${block('Más peleas totales',topFights,totalFights)}
+  ${block('Mayor GOAT Score',topGoat,goatScore,' 🐐')}
+  ${block('Más Pelea de la Noche 🌟',topFOTN,f=>f.bonuses.fightOfNight)}
+  ${block('Más Actuación de la Noche ⭐',topPOTN,f=>f.bonuses.performanceOfNight)}
   `;
 }
 
