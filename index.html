@@ -286,40 +286,6 @@ const REAL_FIGHTERS = [
 const TIER_RANGES = {
   legend:[78,95], elite:[74,90], contender:[65,82], veteran:[60,78]
 };
-const TIER_FIGHTS = { legend:[28,45], elite:[16,24], contender:[10,18], veteran:[18,28] };
-const TIER_WINRATE = { legend:[0.78,0.92], elite:[0.65,0.82], contender:[0.50,0.68], veteran:[0.45,0.62] };
-
-function distribute(total, weights){
-  // reparte "total" en partes proporcionales a "weights" (array), redondeando y ajustando el resto a la última parte
-  const sum = weights.reduce((a,b)=>a+b,0)||1;
-  const parts = weights.map(w=>Math.floor(total*(w/sum)));
-  let used = parts.reduce((a,b)=>a+b,0);
-  let i=0;
-  while(used<total){ parts[i%parts.length]++; used++; i++; }
-  return parts;
-}
-
-function generateCareerRecord(stats, tier){
-  const [fMin,fMax] = TIER_FIGHTS[tier]||TIER_FIGHTS.contender;
-  const [wMin,wMax] = TIER_WINRATE[tier]||TIER_WINRATE.contender;
-  const fights = randi(fMin,fMax);
-  const winRate = rand(wMin,wMax);
-  const draws = Math.random()<0.06? 1:0;
-  const wins = Math.round((fights-draws)*winRate);
-  const losses = Math.max(0, fights-draws-wins);
-
-  const koW = stats.power*0.6+stats.striking*0.4;
-  const subW = stats.ground*0.8+stats.wrestlingOff*0.2;
-  const decW = 35;
-  const [winKo,winSub,winDec] = distribute(wins, [koW,subW,decW]);
-
-  const koL = (100-stats.chin)*0.7+10;
-  const subL = (100-stats.wrestlingDef)*0.5+10;
-  const decL = 30;
-  const [lossKo,lossSub,lossDec] = distribute(losses, [koL,subL,decL]);
-
-  return {wins,losses,draws,nc:0,koWins:winKo,subWins:winSub,decWins:winDec,koLosses:lossKo,subLosses:lossSub,decLosses:lossDec};
-}
 
 function makeRealFighter(rf){
   const range = TIER_RANGES[rf.tier]||[60,80];
@@ -331,10 +297,10 @@ function makeRealFighter(rf){
     dob:rf.dob, debut:rf.debut, division:rf.division, stats, longevity,
     status: rf.status==='retired'?'retired':'active',
     injury:{active:false, untilDate:null, note:''},
-    record: generateCareerRecord(stats, rf.tier),
-    bonuses:{fightOfNight:randi(0,STAT_KEYS_BONUS_CAP(rf.tier)), performanceOfNight:randi(0,STAT_KEYS_BONUS_CAP(rf.tier))},
+    record: {wins:0,losses:0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0},
+    bonuses:{fightOfNight:0, performanceOfNight:0},
     titleReigns:[], fightHistory:[], lastEventSeq:null,
-    hof: rf.tier==='legend' && rf.status==='retired',
+    hof: false,
     rankScore:0,
     _tier: rf.tier
   };
@@ -348,56 +314,14 @@ function seedFighters(){
     const count = STATE.fighters.filter(f=>f.division===div.id).length;
     for(let i=count;i<2;i++) STATE.fighters.push(makeFighter(div.id, div.gender));
   });
-  // crear títulos de división + BMF
+  // crear títulos de división + BMF (todos vacantes, sin historial generado)
   STATE.titles = DIVISIONS.map(d=>({
     id: uid('T'), name: `Cinturón de ${divName(d.id)}`, divisionId:d.id, holderId:null, isInterim:false, history:[]
   }));
   STATE.titles.push({id:uid('T'), name:'Cinturón BMF', divisionId:null, holderId:null, isInterim:false, history:[]});
 
-  assignTitleHistory();
-
-  logEvent(`Liga inicializada con ${STATE.fighters.length} peleadores (roster real + generados).`);
+  logEvent(`Liga inicializada con ${STATE.fighters.length} peleadores. Todos los récords en 0-0-0 para edición manual.`);
   saveLocal();
-}
-
-function assignTitleHistory(){
-  DIVISIONS.forEach(div=>{
-    const title = STATE.titles.find(t=>t.divisionId===div.id);
-    if(!title) return;
-    const pool = STATE.fighters.filter(f=>f.division===div.id);
-    // ex-campeones: leyendas retiradas -> reinado cerrado con defensas
-    const retiredLegends = pool.filter(f=>f._tier==='legend' && f.status==='retired')
-      .sort((a,b)=>(b.record.wins-b.record.losses)-(a.record.wins-a.record.losses));
-    retiredLegends.slice(0,2).forEach((f,idx)=>{
-      const defenses = randi(1,7);
-      const wonDate = addDays(STATE.meta.currentDate, -randi(1200,3600));
-      const lostDate = addDays(wonDate, randi(180,900));
-      f.titleReigns.push({titleId:title.id, wonDate, lostDate, defenses});
-      title.history.push({fighterId:f.id, wonEventId:null, wonDate});
-    });
-    // campeón actual: mejor activo legend/elite por rating
-    const champCandidates = pool.filter(f=>f.status==='active' && (f._tier==='legend'||f._tier==='elite'))
-      .sort((a,b)=>overallRating(b)-overallRating(a));
-    if(champCandidates.length){
-      const champ = champCandidates[0];
-      const defenses = randi(0, champ._tier==='legend'?6:3);
-      const wonDate = addDays(STATE.meta.currentDate, -randi(60,700));
-      champ.titleReigns.push({titleId:title.id, wonDate, lostDate:null, defenses});
-      title.holderId = champ.id; title.isInterim=false;
-      title.history.push({fighterId:champ.id, wonEventId:null, wonDate});
-    }
-  });
-  // BMF: a un peleador activo destacado de welter o ligero
-  const bmf = STATE.titles.find(t=>t.name.includes('BMF'));
-  const bmfPool = STATE.fighters.filter(f=>['M_WELTER','M_LIGHT'].includes(f.division) && f.status==='active' && (f._tier==='legend'||f._tier==='elite'))
-    .sort((a,b)=>overallRating(b)-overallRating(a));
-  if(bmf && bmfPool.length){
-    const holder = bmfPool[0];
-    const wonDate = addDays(STATE.meta.currentDate, -randi(60,500));
-    holder.titleReigns.push({titleId:bmf.id, wonDate, lostDate:null, defenses:randi(0,2)});
-    bmf.holderId = holder.id;
-    bmf.history.push({fighterId:holder.id, wonEventId:null, wonDate});
-  }
 }
 
 /* ====================== PERSISTENCIA LOCAL ====================== */
@@ -1147,7 +1071,7 @@ function tplEditor(){
   return `
   <div class="card">
     <h2>🛠 Editor</h2>
-    <p class="muted">Edita cualquier dato del juego. También tienes un editor JSON completo más abajo por si necesitas algo no cubierto por los formularios.</p>
+    <p class="muted">Edita peleadores, récords, títulos y reinados manualmente para construir historiales completos.</p>
   </div>
 
   <div class="card">
@@ -1158,6 +1082,30 @@ function tplEditor(){
   </div>
 
   <div class="card" id="fighterForm">${tplFighterForm(f)}</div>
+
+  ${f ? `<div class="card" id="bonusesForm">${tplBonusesForm(f)}</div>` : ''}
+
+  ${f ? `<div class="card" id="reignsForm">${tplReignsForm(f)}</div>` : ''}
+
+  <div class="card">
+    <h3>🏆 Gestión de títulos</h3>
+    <p class="muted">Asigna o vacía el campeón actual de cada título.</p>
+    ${STATE.titles.map(t=>{
+      const holder = STATE.fighters.find(x=>x.id===t.holderId);
+      return `<div class="fightcard-item">
+        <b>${t.name}</b>${t.isInterim?' <span class="pill interim">Interino</span>':''}
+        <div class="muted">Actual: ${holder?holder.name:'Vacante'}</div>
+        <div class="row" style="margin-top:6px">
+          <select id="titleHolder_${t.id}">
+            <option value="">— Vacante —</option>
+            ${STATE.fighters.filter(x=>x.status!=='retired').slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${x.id}" ${t.holderId===x.id?'selected':''}>${x.name}</option>`).join('')}
+          </select>
+          <label style="display:flex;align-items:center;gap:4px;flex:0 0 auto"><input type="checkbox" id="titleInterim_${t.id}" style="width:auto" ${t.isInterim?'checked':''}> Interino</label>
+        </div>
+        <button class="btn small primary" style="margin-top:6px" data-settitle="${t.id}">Aplicar campeón</button>
+      </div>`;
+    }).join('')}
+  </div>
 
   <div class="card">
     <h3>Eventos</h3>
@@ -1175,6 +1123,62 @@ function tplEditor(){
       <button class="btn full" id="applyJson">Aplicar JSON</button>
       <button class="btn full" id="refreshJson">Refrescar vista</button>
     </div>
+  </div>
+  `;
+}
+
+function tplBonusesForm(f){
+  return `
+  <h3>Bonos y actuaciones destacadas</h3>
+  <div class="grid2">
+    <div><label>Peleas de la Noche 🌟</label><input type="number" min="0" id="fld_fotn" value="${f.bonuses.fightOfNight||0}"></div>
+    <div><label>Actuaciones de la Noche ⭐</label><input type="number" min="0" id="fld_potn" value="${f.bonuses.performanceOfNight||0}"></div>
+  </div>
+  <button class="btn primary full" id="saveBonusesBtn" style="margin-top:8px">Guardar bonos</button>
+  `;
+}
+
+function tplReignsForm(f){
+  const reigns = f.titleReigns||[];
+  return `
+  <h3>👑 Reinados de título de ${f.name}</h3>
+  <p class="muted">Añade, edita o elimina reinados. Los cambios actualizan automáticamente el titular del cinturón.</p>
+
+  ${reigns.length===0?'<p class="muted">Sin reinados registrados.</p>':''}
+  ${reigns.map((r,idx)=>{
+    const t = STATE.titles.find(x=>x.id===r.titleId);
+    return `<div class="fightcard-item" style="position:relative">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b>${t?t.name:'Título desconocido'}</b>
+        <button class="btn small danger" data-delreign="${idx}">✕ Quitar</button>
+      </div>
+      <div class="grid2" style="margin-top:6px">
+        <div><label>Fecha inicio reinado</label><input type="date" id="reign_won_${idx}" value="${r.wonDate||''}"></div>
+        <div><label>Fecha pérdida (vacío = actual)</label><input type="date" id="reign_lost_${idx}" value="${r.lostDate||''}"></div>
+      </div>
+      <div class="grid2">
+        <div><label>Defensas</label><input type="number" min="0" id="reign_def_${idx}" value="${r.defenses||0}"></div>
+        <div><label>¿Interino?</label><select id="reign_interim_${idx}"><option value="0" ${!r.isInterim?'selected':''}>No</option><option value="1" ${r.isInterim?'selected':''}>Sí</option></select></div>
+      </div>
+      <button class="btn small green" data-savereign="${idx}" style="margin-top:6px">💾 Guardar este reinado</button>
+    </div>`;
+  }).join('')}
+
+  <div style="margin-top:10px">
+    <h4>➕ Añadir nuevo reinado</h4>
+    <label>Título</label>
+    <select id="newReign_title">
+      ${STATE.titles.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}
+    </select>
+    <div class="grid2">
+      <div><label>Fecha inicio</label><input type="date" id="newReign_won" value="${STATE.meta.currentDate}"></div>
+      <div><label>Fecha pérdida (vacío = vigente)</label><input type="date" id="newReign_lost" value=""></div>
+    </div>
+    <div class="grid2">
+      <div><label>Defensas</label><input type="number" min="0" id="newReign_def" value="0"></div>
+      <div><label>¿Interino?</label><select id="newReign_interim"><option value="0">No</option><option value="1">Sí</option></select></div>
+    </div>
+    <button class="btn primary full" id="addReignBtn" style="margin-top:8px">Añadir reinado</button>
   </div>
   `;
 }
@@ -1209,7 +1213,7 @@ function tplFighterForm(f){
     ${STAT_KEYS.map(([k,label])=>`<div><label>${label}</label><input type="number" min="1" max="99" id="fld_stat_${k}" value="${d.stats[k]}"></div>`).join('')}
   </div>
   <label>Longevidad (0-100)</label><input type="number" min="0" max="100" id="fld_longevity" value="${d.longevity}">
-  <h4>Récord</h4>
+  <h4>Récord histórico</h4>
   <div class="grid3">
     <div><label>Victorias</label><input type="number" id="fld_w" value="${d.record.wins}"></div>
     <div><label>Derrotas</label><input type="number" id="fld_l" value="${d.record.losses}"></div>
@@ -1217,8 +1221,11 @@ function tplFighterForm(f){
     <div><label>KO Victorias</label><input type="number" id="fld_kow" value="${d.record.koWins}"></div>
     <div><label>SUB Victorias</label><input type="number" id="fld_subw" value="${d.record.subWins}"></div>
     <div><label>DEC Victorias</label><input type="number" id="fld_decw" value="${d.record.decWins}"></div>
+    <div><label>KO Derrotas</label><input type="number" id="fld_kol" value="${d.record.koLosses||0}"></div>
+    <div><label>SUB Derrotas</label><input type="number" id="fld_subl" value="${d.record.subLosses||0}"></div>
+    <div><label>DEC Derrotas</label><input type="number" id="fld_decl" value="${d.record.decLosses||0}"></div>
   </div>
-  <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="fld_hof" style="width:auto" ${d.hof?'checked':''}> Miembro del Hall of Fame</label>
+  <label style="display:flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="fld_hof" style="width:auto" ${d.hof?'checked':''}> Miembro del Hall of Fame</label>
   <div class="row" style="margin-top:8px">
     <button class="btn primary full" id="saveFighterBtn">${f?'Guardar cambios':'Crear peleador'}</button>
     ${f?'<button class="btn danger full" id="deleteFighterBtn">Eliminar peleador</button>':''}
@@ -1228,7 +1235,8 @@ function tplFighterForm(f){
 
 function bindEditor(){
   document.getElementById('editFighterSel').onchange=e=>{ UI.selectedFighter=e.target.value||null; render(); };
-  const form=()=>document.getElementById('fighterForm');
+
+  // Guardar datos básicos del peleador
   document.getElementById('saveFighterBtn').onclick=()=>{
     const get=id=>document.getElementById(id).value;
     const stats={}; STAT_KEYS.forEach(([k])=> stats[k]=clamp(parseInt(document.getElementById('fld_stat_'+k).value)||50,1,99));
@@ -1238,21 +1246,122 @@ function bindEditor(){
     f.dob=get('fld_dob'); f.debut=get('fld_debut'); f.division=get('fld_division'); f.status=get('fld_status');
     f.stats=stats; f.longevity=clamp(parseInt(get('fld_longevity'))||0,0,100);
     f.record = {
-      wins: parseInt(get('fld_w'))||0, losses: parseInt(get('fld_l'))||0, draws: parseInt(get('fld_dr'))||0, nc: f.record? f.record.nc:0,
+      wins: parseInt(get('fld_w'))||0, losses: parseInt(get('fld_l'))||0, draws: parseInt(get('fld_dr'))||0, nc: f.record?f.record.nc:0,
       koWins: parseInt(get('fld_kow'))||0, subWins: parseInt(get('fld_subw'))||0, decWins: parseInt(get('fld_decw'))||0,
-      koLosses: f.record?f.record.koLosses:0, subLosses: f.record?f.record.subLosses:0, decLosses: f.record?f.record.decLosses:0
+      koLosses: parseInt(get('fld_kol'))||0, subLosses: parseInt(get('fld_subl'))||0, decLosses: parseInt(get('fld_decl'))||0
     };
     f.hof = document.getElementById('fld_hof').checked;
     if(f.status==='injured' && !f.injury.active){ f.injury={active:true, untilDate:addDays(STATE.meta.currentDate,60), note:'Editado manualmente'}; }
     if(f.status!=='injured'){ f.injury.active=false; }
-    saveLocal(); UI.selectedFighter=f.id; render(); toast('Peleador guardado');
+    saveLocal(); UI.selectedFighter=f.id; render(); toast('Peleador guardado ✅');
   };
+
   const delBtn=document.getElementById('deleteFighterBtn');
   if(delBtn) delBtn.onclick=()=>{
     if(!confirm('¿Eliminar este peleador definitivamente?')) return;
     STATE.fighters = STATE.fighters.filter(x=>x.id!==UI.selectedFighter);
     UI.selectedFighter=null; saveLocal(); render(); toast('Peleador eliminado');
   };
+
+  // Guardar bonos
+  const saveBonusesBtn = document.getElementById('saveBonusesBtn');
+  if(saveBonusesBtn) saveBonusesBtn.onclick=()=>{
+    const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+    f.bonuses.fightOfNight = parseInt(document.getElementById('fld_fotn').value)||0;
+    f.bonuses.performanceOfNight = parseInt(document.getElementById('fld_potn').value)||0;
+    saveLocal(); toast('Bonos guardados ✅');
+  };
+
+  // Reinados: guardar individual
+  document.querySelectorAll('[data-savereign]').forEach(btn=>{
+    btn.onclick=()=>{
+      const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+      const idx = parseInt(btn.dataset.savereign);
+      const r = f.titleReigns[idx]; if(!r) return;
+      r.wonDate = document.getElementById(`reign_won_${idx}`).value || r.wonDate;
+      r.lostDate = document.getElementById(`reign_lost_${idx}`).value || null;
+      r.defenses = parseInt(document.getElementById(`reign_def_${idx}`).value)||0;
+      r.isInterim = document.getElementById(`reign_interim_${idx}`).value==='1';
+      // Sincronizar titular del cinturón: si lostDate es null, este peleador es el campeón actual
+      syncTitleHolder(f, r);
+      saveLocal(); render(); toast('Reinado guardado ✅');
+    };
+  });
+
+  // Reinados: eliminar
+  document.querySelectorAll('[data-delreign]').forEach(btn=>{
+    btn.onclick=()=>{
+      const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+      const idx = parseInt(btn.dataset.delreign);
+      const r = f.titleReigns[idx];
+      if(r){
+        // Si era el campeón vigente, vacar el cinturón
+        const title = STATE.titles.find(t=>t.id===r.titleId);
+        if(title && title.holderId===f.id && !r.lostDate){ title.holderId=null; title.isInterim=false; }
+      }
+      f.titleReigns.splice(idx,1);
+      saveLocal(); render(); toast('Reinado eliminado');
+    };
+  });
+
+  // Reinados: añadir nuevo
+  const addReignBtn = document.getElementById('addReignBtn');
+  if(addReignBtn) addReignBtn.onclick=()=>{
+    const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+    const titleId = document.getElementById('newReign_title').value;
+    const wonDate = document.getElementById('newReign_won').value || STATE.meta.currentDate;
+    const lostDate = document.getElementById('newReign_lost').value || null;
+    const defenses = parseInt(document.getElementById('newReign_def').value)||0;
+    const isInterim = document.getElementById('newReign_interim').value==='1';
+    if(!titleId) return toast('Selecciona un título');
+    const newReign = {titleId, wonDate, lostDate, defenses, isInterim};
+    f.titleReigns = f.titleReigns||[];
+    f.titleReigns.push(newReign);
+    syncTitleHolder(f, newReign);
+    // Añadir al historial del título si no estaba
+    const title = STATE.titles.find(t=>t.id===titleId);
+    if(title && !title.history.find(h=>h.fighterId===f.id && h.wonDate===wonDate)){
+      title.history.push({fighterId:f.id, wonEventId:null, wonDate});
+    }
+    saveLocal(); render(); toast('Reinado añadido ✅');
+  };
+
+  // Gestión directa de titulares
+  document.querySelectorAll('[data-settitle]').forEach(btn=>{
+    btn.onclick=()=>{
+      const titleId = btn.dataset.settitle;
+      const title = STATE.titles.find(t=>t.id===titleId); if(!title) return;
+      const newHolderId = document.getElementById(`titleHolder_${titleId}`).value||null;
+      const newInterim = document.getElementById(`titleInterim_${titleId}`).checked;
+      // Cerrar reinado del campeón anterior si existe
+      if(title.holderId && title.holderId!==newHolderId){
+        const prev = STATE.fighters.find(x=>x.id===title.holderId);
+        if(prev){ const r=(prev.titleReigns||[]).find(rr=>rr.titleId===titleId&&!rr.lostDate); if(r) r.lostDate=STATE.meta.currentDate; }
+      }
+      title.holderId = newHolderId;
+      title.isInterim = newInterim;
+      // Si hay nuevo campeón, abrir o añadir un reinado sin fecha de pérdida
+      if(newHolderId){
+        const nf = STATE.fighters.find(x=>x.id===newHolderId);
+        if(nf){
+          const existing = (nf.titleReigns||[]).find(r=>r.titleId===titleId&&!r.lostDate);
+          if(!existing){
+            nf.titleReigns = nf.titleReigns||[];
+            const wonDate = STATE.meta.currentDate;
+            nf.titleReigns.push({titleId, wonDate, lostDate:null, defenses:0, isInterim:newInterim});
+            if(!title.history.find(h=>h.fighterId===newHolderId&&h.wonDate===wonDate)){
+              title.history.push({fighterId:newHolderId, wonEventId:null, wonDate});
+            }
+          }
+        }
+        logEvent(`🏆 ${nf?nf.name:'?'} asignado como ${newInterim?'campeón interino':'campeón'} de ${title.name} (Editor).`);
+      } else {
+        logEvent(`⚠️ ${title.name} vacado desde el Editor.`);
+      }
+      saveLocal(); render(); toast('Titular actualizado ✅');
+    };
+  });
+
   document.getElementById('delEventBtn').onclick=()=>{
     const id=document.getElementById('delEventSel').value; if(!id) return;
     STATE.events = STATE.events.filter(x=>x.id!==id); saveLocal(); render(); toast('Evento eliminado');
@@ -1264,6 +1373,23 @@ function bindEditor(){
     }catch(e){ toast('JSON inválido: '+e.message, 4000); }
   };
   document.getElementById('refreshJson').onclick=()=> render();
+}
+
+// Sincroniza el titular de un cinturón cuando se edita un reinado
+function syncTitleHolder(fighter, reign){
+  const title = STATE.titles.find(t=>t.id===reign.titleId); if(!title) return;
+  if(!reign.lostDate){
+    // Este peleador tiene el cinturón vigente — cerrar reinado anterior si era otro
+    if(title.holderId && title.holderId!==fighter.id){
+      const prev = STATE.fighters.find(x=>x.id===title.holderId);
+      if(prev){ const r=(prev.titleReigns||[]).find(rr=>rr.titleId===reign.titleId&&!rr.lostDate); if(r) r.lostDate=STATE.meta.currentDate; }
+    }
+    title.holderId = fighter.id;
+    title.isInterim = reign.isInterim||false;
+  } else {
+    // Reinado cerrado — si este peleador era el titular, vacar
+    if(title.holderId===fighter.id) title.holderId=null;
+  }
 }
 
 /* ====================== AJUSTES / GITHUB ====================== */
