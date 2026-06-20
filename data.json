@@ -1,0 +1,3262 @@
+{
+ "meta": {
+  "currentDate": "2026-01-15",
+  "eventSeq": 1,
+  "fightSeq": 1,
+  "leagueName": "UFC"
+ },
+ "divisions": [
+  {
+   "id": "W_STRAW",
+   "name": "Peso Paja",
+   "gender": "F",
+   "limit": 115,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "W_FLY",
+   "name": "Peso Mosca",
+   "gender": "F",
+   "limit": 125,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "W_BANTAM",
+   "name": "Peso Gallo",
+   "gender": "F",
+   "limit": 135,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "W_FEATHER",
+   "name": "Peso Pluma",
+   "gender": "F",
+   "limit": 145,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_FLY",
+   "name": "Peso Mosca",
+   "gender": "M",
+   "limit": 125,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_BANTAM",
+   "name": "Peso Gallo",
+   "gender": "M",
+   "limit": 135,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_FEATHER",
+   "name": "Peso Pluma",
+   "gender": "M",
+   "limit": 145,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_LIGHT",
+   "name": "Peso Ligero",
+   "gender": "M",
+   "limit": 155,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_WELTER",
+   "name": "Peso Wélter",
+   "gender": "M",
+   "limit": 170,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_MIDDLE",
+   "name": "Peso Medio",
+   "gender": "M",
+   "limit": 185,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_LHEAVY",
+   "name": "Semipesado",
+   "gender": "M",
+   "limit": 205,
+   "championId": null,
+   "interimChampionId": null
+  },
+  {
+   "id": "M_HEAVY",
+   "name": "Peso Pesado",
+   "gender": "M",
+   "limit": 265,
+   "championId": null,
+   "interimChampionId": null
+  }
+ ],
+ "titles": [
+  {
+   "id": "T_pyfm3pg",
+   "name": "Cinturón de ♀ Peso Paja",
+   "divisionId": "W_STRAW",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_vazsoxd",
+   "name": "Cinturón de ♀ Peso Mosca",
+   "divisionId": "W_FLY",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_djuy5x2",
+   "name": "Cinturón de ♀ Peso Gallo",
+   "divisionId": "W_BANTAM",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_28yyui5",
+   "name": "Cinturón de ♀ Peso Pluma",
+   "divisionId": "W_FEATHER",
+   "holderId": "F_5srm9cj",
+   "isInterim": false,
+   "history": [
+    {
+     "fighterId": "F_5srm9cj",
+     "wonEventId": null,
+     "wonDate": "2019-12-14"
+    },
+    {
+     "fighterId": "F_5srm9cj",
+     "wonEventId": null,
+     "wonDate": "2025-04-12"
+    }
+   ]
+  },
+  {
+   "id": "T_br19on6",
+   "name": "Cinturón de ♂ Peso Mosca",
+   "divisionId": "M_FLY",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_vgzw5mp",
+   "name": "Cinturón de ♂ Peso Gallo",
+   "divisionId": "M_BANTAM",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_cx7weus",
+   "name": "Cinturón de ♂ Peso Pluma",
+   "divisionId": "M_FEATHER",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_lgqanm4",
+   "name": "Cinturón de ♂ Peso Ligero",
+   "divisionId": "M_LIGHT",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_al5oc4i",
+   "name": "Cinturón de ♂ Peso Wélter",
+   "divisionId": "M_WELTER",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_o915jce",
+   "name": "Cinturón de ♂ Peso Medio",
+   "divisionId": "M_MIDDLE",
+   "holderId": null,
+   "isInterim": false,
+   "history": [
+    {
+     "fighterId": "F_x46airj",
+     "wonEventId": null,
+     "wonDate": "2022-11-12"
+    }
+   ]
+  },
+  {
+   "id": "T_11hv1a4",
+   "name": "Cinturón de ♂ Semipesado",
+   "divisionId": "M_LHEAVY",
+   "holderId": "F_x46airj",
+   "isInterim": false,
+   "history": [
+    {
+     "fighterId": "F_x46airj",
+     "wonEventId": null,
+     "wonDate": "2023-11-11"
+    },
+    {
+     "fighterId": "F_x46airj",
+     "wonEventId": null,
+     "wonDate": "2025-10-04"
+    }
+   ]
+  },
+  {
+   "id": "T_mlcf0rz",
+   "name": "Cinturón de ♂ Peso Pesado",
+   "divisionId": "M_HEAVY",
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  },
+  {
+   "id": "T_fdqc519",
+   "name": "Cinturón BMF",
+   "divisionId": null,
+   "holderId": null,
+   "isInterim": false,
+   "history": []
+  }
+ ],
+ "fighters": [
+  {
+   "id": "F_z76a839",
+   "name": "Jon Jones",
+   "nickname": "Bones",
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1987-07-19",
+   "debut": "2008-04-12",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 94,
+    "striking": 95,
+    "wrestlingOff": 98,
+    "wrestlingDef": 99,
+    "ground": 95,
+    "cardio": 98,
+    "chin": 98
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_hm89bjg",
+   "name": "Stipe Miocic",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1982-08-19",
+   "debut": "2010-10-01",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 92,
+    "striking": 88,
+    "wrestlingOff": 82,
+    "wrestlingDef": 88,
+    "ground": 78,
+    "cardio": 90,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_1d9n9tw",
+   "name": "Daniel Cormier",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1979-03-20",
+   "debut": "2009-09-19",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 88,
+    "striking": 90,
+    "wrestlingOff": 96,
+    "wrestlingDef": 97,
+    "ground": 90,
+    "cardio": 93,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_83mywjo",
+   "name": "Cain Velasquez",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1982-07-28",
+   "debut": "2006-10-28",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 92,
+    "striking": 89,
+    "wrestlingOff": 97,
+    "wrestlingDef": 96,
+    "ground": 88,
+    "cardio": 99,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_4woo6bg",
+   "name": "Brock Lesnar",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1977-07-12",
+   "debut": "2007-06-02",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 95,
+    "striking": 70,
+    "wrestlingOff": 99,
+    "wrestlingDef": 95,
+    "ground": 75,
+    "cardio": 75,
+    "chin": 88
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_fznkuky",
+   "name": "Fabricio Werdum",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1977-07-30",
+   "debut": "2008-04-19",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 85,
+    "striking": 87,
+    "wrestlingOff": 86,
+    "wrestlingDef": 88,
+    "ground": 99,
+    "cardio": 90,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "veteran"
+  },
+  {
+   "id": "F_cckjhtt",
+   "name": "Junior Dos Santos",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1984-04-13",
+   "debut": "2008-08-09",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 94,
+    "striking": 93,
+    "wrestlingOff": 80,
+    "wrestlingDef": 90,
+    "ground": 82,
+    "cardio": 88,
+    "chin": 91
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_yc5u06u",
+   "name": "Tom Aspinall",
+   "nickname": null,
+   "gender": "M",
+   "country": "Inglaterra",
+   "dob": "1993-02-11",
+   "debut": "2020-07-11",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 94,
+    "striking": 92,
+    "wrestlingOff": 92,
+    "wrestlingDef": 93,
+    "ground": 90,
+    "cardio": 93,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_sbgetnb",
+   "name": "Ciryl Gane",
+   "nickname": null,
+   "gender": "M",
+   "country": "Francia",
+   "dob": "1990-01-12",
+   "debut": "2019-09-21",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 84,
+    "striking": 97,
+    "wrestlingOff": 72,
+    "wrestlingDef": 78,
+    "ground": 75,
+    "cardio": 94,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_gbeq890",
+   "name": "Sergei Pavlovich",
+   "nickname": null,
+   "gender": "M",
+   "country": "Rusia",
+   "dob": "1991-12-08",
+   "debut": "2018-10-26",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 98,
+    "striking": 86,
+    "wrestlingOff": 78,
+    "wrestlingDef": 84,
+    "ground": 76,
+    "cardio": 86,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "contender"
+  },
+  {
+   "id": "F_y023pef",
+   "name": "Curtis Blaydes",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1991-04-18",
+   "debut": "2016-06-18",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 85,
+    "striking": 76,
+    "wrestlingOff": 98,
+    "wrestlingDef": 95,
+    "ground": 82,
+    "cardio": 92,
+    "chin": 91
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "contender"
+  },
+  {
+   "id": "F_5oq9bc9",
+   "name": "Alexander Volkov",
+   "nickname": null,
+   "gender": "M",
+   "country": "Rusia",
+   "dob": "1988-08-24",
+   "debut": "2016-09-10",
+   "division": "M_HEAVY",
+   "stats": {
+    "power": 89,
+    "striking": 94,
+    "wrestlingOff": 70,
+    "wrestlingDef": 83,
+    "ground": 81,
+    "cardio": 90,
+    "chin": 87
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "contender"
+  },
+  {
+   "id": "F_x46airj",
+   "name": "Alex Pereira",
+   "nickname": "Poatan",
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1987-07-07",
+   "debut": "2021-11-06",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 98,
+    "striking": 95,
+    "wrestlingOff": 75,
+    "wrestlingDef": 85,
+    "ground": 72,
+    "cardio": 90,
+    "chin": 88
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 13,
+    "losses": 4,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 11,
+    "subWins": 0,
+    "decWins": 2,
+    "koLosses": 2,
+    "subLosses": 1,
+    "decLosses": 1
+   },
+   "bonuses": {
+    "fightOfNight": 1,
+    "performanceOfNight": 6
+   },
+   "titleReigns": [
+    {
+     "titleId": "T_o915jce",
+     "wonDate": "2022-11-12",
+     "lostDate": "2023-04-08",
+     "defenses": 0,
+     "isInterim": false
+    },
+    {
+     "titleId": "T_11hv1a4",
+     "wonDate": "2023-11-11",
+     "lostDate": "2025-03-08",
+     "defenses": 3,
+     "isInterim": false
+    },
+    {
+     "titleId": "T_11hv1a4",
+     "wonDate": "2025-10-04",
+     "lostDate": null,
+     "defenses": 0,
+     "isInterim": false
+    }
+   ],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": 62.10000000000001,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_t7ikre0",
+   "name": "Jiri Prochazka",
+   "nickname": null,
+   "gender": "M",
+   "country": "Rep. Checa",
+   "dob": "1992-10-14",
+   "debut": "2020-02-29",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 94,
+    "striking": 88,
+    "wrestlingOff": 73,
+    "wrestlingDef": 75,
+    "ground": 80,
+    "cardio": 90,
+    "chin": 91
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_8kq1p8n",
+   "name": "Jan Blachowicz",
+   "nickname": null,
+   "gender": "M",
+   "country": "Polonia",
+   "dob": "1983-08-24",
+   "debut": "2009-09-19",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 88,
+    "striking": 88,
+    "wrestlingOff": 84,
+    "wrestlingDef": 84,
+    "ground": 80,
+    "cardio": 90,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "veteran"
+  },
+  {
+   "id": "F_wvf3hhu",
+   "name": "Magomed Ankalaev",
+   "nickname": null,
+   "gender": "M",
+   "country": "Rusia",
+   "dob": "1992-06-02",
+   "debut": "2018-11-30",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 84,
+    "striking": 88,
+    "wrestlingOff": 90,
+    "wrestlingDef": 90,
+    "ground": 85,
+    "cardio": 90,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_e167i24",
+   "name": "Glover Teixeira",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1979-10-28",
+   "debut": "2012-05-05",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 89,
+    "striking": 82,
+    "wrestlingOff": 90,
+    "wrestlingDef": 90,
+    "ground": 98,
+    "cardio": 90,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_vj9h5ya",
+   "name": "Mauricio Rua",
+   "nickname": "Shogun",
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1981-11-25",
+   "debut": "2005-05-05",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 94,
+    "striking": 90,
+    "wrestlingOff": 86,
+    "wrestlingDef": 84,
+    "ground": 85,
+    "cardio": 89,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_kezhdpv",
+   "name": "Lyoto Machida",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1978-10-30",
+   "debut": "2003-03-08",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 88,
+    "striking": 96,
+    "wrestlingOff": 80,
+    "wrestlingDef": 92,
+    "ground": 84,
+    "cardio": 90,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_vr1s6s2",
+   "name": "Rampage Jackson",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1978-06-23",
+   "debut": "2001-08-25",
+   "division": "M_LHEAVY",
+   "stats": {
+    "power": 93,
+    "striking": 86,
+    "wrestlingOff": 90,
+    "wrestlingDef": 88,
+    "ground": 84,
+    "cardio": 88,
+    "chin": 96
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_tdujn4b",
+   "name": "Israel Adesanya",
+   "nickname": "The Nigerian Nightmare",
+   "gender": "M",
+   "country": "Nigeria",
+   "dob": "1989-07-22",
+   "debut": "2018-02-10",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 98,
+    "striking": 99,
+    "wrestlingOff": 68,
+    "wrestlingDef": 88,
+    "ground": 74,
+    "cardio": 95,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_v1jp00s",
+   "name": "Dricus Du Plessis",
+   "nickname": "\"Stillknocks\"",
+   "gender": "M",
+   "country": "Sudáfrica",
+   "dob": "1994-02-14",
+   "debut": "2020-09-05",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 81,
+    "striking": 79,
+    "wrestlingOff": 90,
+    "wrestlingDef": 88,
+    "ground": 88,
+    "cardio": 81,
+    "chin": 75
+   },
+   "longevity": 85,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_11p8cf9",
+   "name": "Sean Strickland",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1991-03-27",
+   "debut": "2014-05-10",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 82,
+    "striking": 87,
+    "wrestlingOff": 78,
+    "wrestlingDef": 88,
+    "ground": 82,
+    "cardio": 94,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_r58fj5n",
+   "name": "Robert Whittaker",
+   "nickname": null,
+   "gender": "M",
+   "country": "Australia",
+   "dob": "1990-12-20",
+   "debut": "2012-02-26",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 83,
+    "striking": 90,
+    "wrestlingOff": 85,
+    "wrestlingDef": 93,
+    "ground": 85,
+    "cardio": 93,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_vhjvapa",
+   "name": "Anderson Silva",
+   "nickname": "The Spider",
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1975-04-14",
+   "debut": "2006-06-28",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 88,
+    "striking": 99,
+    "wrestlingOff": 78,
+    "wrestlingDef": 92,
+    "ground": 86,
+    "cardio": 93,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_flp0f08",
+   "name": "Chael Sonnen",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1977-04-03",
+   "debut": "2005-03-04",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 72,
+    "striking": 78,
+    "wrestlingOff": 98,
+    "wrestlingDef": 93,
+    "ground": 80,
+    "cardio": 96,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "veteran"
+  },
+  {
+   "id": "F_h3l40eb",
+   "name": "Michael Bisping",
+   "nickname": null,
+   "gender": "M",
+   "country": "Inglaterra",
+   "dob": "1979-02-28",
+   "debut": "2006-09-23",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 83,
+    "striking": 90,
+    "wrestlingOff": 80,
+    "wrestlingDef": 88,
+    "ground": 84,
+    "cardio": 95,
+    "chin": 96
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_6uxv0xr",
+   "name": "Vitor Belfort",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1977-04-01",
+   "debut": "1996-10-19",
+   "division": "M_MIDDLE",
+   "stats": {
+    "power": 95,
+    "striking": 89,
+    "wrestlingOff": 84,
+    "wrestlingDef": 83,
+    "ground": 82,
+    "cardio": 84,
+    "chin": 88
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_8mprzfk",
+   "name": "Kamaru Usman",
+   "nickname": null,
+   "gender": "M",
+   "country": "Nigeria",
+   "dob": "1987-05-11",
+   "debut": "2012-03-03",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 89,
+    "striking": 88,
+    "wrestlingOff": 98,
+    "wrestlingDef": 98,
+    "ground": 84,
+    "cardio": 95,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_um81s6i",
+   "name": "Leon Edwards",
+   "nickname": null,
+   "gender": "M",
+   "country": "Inglaterra",
+   "dob": "1991-08-25",
+   "debut": "2014-12-13",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 87,
+    "striking": 92,
+    "wrestlingOff": 78,
+    "wrestlingDef": 90,
+    "ground": 82,
+    "cardio": 93,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_p4x3aku",
+   "name": "Belal Muhammad",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1990-06-09",
+   "debut": "2016-07-13",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 77,
+    "striking": 82,
+    "wrestlingOff": 94,
+    "wrestlingDef": 90,
+    "ground": 88,
+    "cardio": 99,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_dixuek9",
+   "name": "Shavkat Rakhmonov",
+   "nickname": null,
+   "gender": "M",
+   "country": "Kazajistán",
+   "dob": "1996-10-05",
+   "debut": "2019-10-04",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 94,
+    "striking": 90,
+    "wrestlingOff": 94,
+    "wrestlingDef": 92,
+    "ground": 98,
+    "cardio": 95,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_8q52yf1",
+   "name": "Georges St-Pierre",
+   "nickname": null,
+   "gender": "M",
+   "country": "Canadá",
+   "dob": "1981-05-19",
+   "debut": "2002-01-25",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 88,
+    "striking": 94,
+    "wrestlingOff": 97,
+    "wrestlingDef": 98,
+    "ground": 90,
+    "cardio": 97,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_a24zbc4",
+   "name": "Nick Diaz",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1983-08-02",
+   "debut": "2001-08-25",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 84,
+    "striking": 90,
+    "wrestlingOff": 78,
+    "wrestlingDef": 85,
+    "ground": 88,
+    "cardio": 99,
+    "chin": 97
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_chct6if",
+   "name": "Robbie Lawler",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1982-03-20",
+   "debut": "2002-03-22",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 91,
+    "striking": 91,
+    "wrestlingOff": 82,
+    "wrestlingDef": 86,
+    "ground": 80,
+    "cardio": 92,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_6jy3r3z",
+   "name": "Matt Hughes",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1973-10-13",
+   "debut": "1998-09-24",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 84,
+    "striking": 80,
+    "wrestlingOff": 95,
+    "wrestlingDef": 93,
+    "ground": 88,
+    "cardio": 92,
+    "chin": 94
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_lkuidvx",
+   "name": "Tyron Woodley",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1982-04-17",
+   "debut": "2009-06-06",
+   "division": "M_WELTER",
+   "stats": {
+    "power": 92,
+    "striking": 87,
+    "wrestlingOff": 88,
+    "wrestlingDef": 94,
+    "ground": 84,
+    "cardio": 85,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "veteran"
+  },
+  {
+   "id": "F_3xttzlb",
+   "name": "Islam Makhachev",
+   "nickname": null,
+   "gender": "M",
+   "country": "Rusia",
+   "dob": "1991-10-27",
+   "debut": "2015-03-14",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 80,
+    "striking": 80,
+    "wrestlingOff": 99,
+    "wrestlingDef": 99,
+    "ground": 97,
+    "cardio": 94,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_nk47c22",
+   "name": "Charles Oliveira",
+   "nickname": "The Bronx",
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1989-10-17",
+   "debut": "2010-08-01",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 90,
+    "striking": 87,
+    "wrestlingOff": 82,
+    "wrestlingDef": 78,
+    "ground": 99,
+    "cardio": 88,
+    "chin": 84
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_632qsu2",
+   "name": "Dustin Poirier",
+   "nickname": "The Diamond",
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1989-01-19",
+   "debut": "2010-01-09",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 92,
+    "striking": 93,
+    "wrestlingOff": 77,
+    "wrestlingDef": 83,
+    "ground": 85,
+    "cardio": 94,
+    "chin": 96
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_kg9sgc0",
+   "name": "Justin Gaethje",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1988-11-14",
+   "debut": "2017-07-07",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 97,
+    "striking": 85,
+    "wrestlingOff": 82,
+    "wrestlingDef": 85,
+    "ground": 70,
+    "cardio": 92,
+    "chin": 98
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_ai1tv6r",
+   "name": "Conor McGregor",
+   "nickname": "The Notorious",
+   "gender": "M",
+   "country": "Irlanda",
+   "dob": "1988-07-14",
+   "debut": "2013-04-06",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 97,
+    "striking": 97,
+    "wrestlingOff": 68,
+    "wrestlingDef": 82,
+    "ground": 75,
+    "cardio": 88,
+    "chin": 88
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_6x3rysa",
+   "name": "Khabib Nurmagomedov",
+   "nickname": null,
+   "gender": "M",
+   "country": "Rusia",
+   "dob": "1988-09-20",
+   "debut": "2008-07-26",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 82,
+    "striking": 80,
+    "wrestlingOff": 99,
+    "wrestlingDef": 99,
+    "ground": 99,
+    "cardio": 98,
+    "chin": 99
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_mygggq5",
+   "name": "BJ Penn",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1978-12-13",
+   "debut": "2001-05-04",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 84,
+    "striking": 92,
+    "wrestlingOff": 82,
+    "wrestlingDef": 91,
+    "ground": 99,
+    "cardio": 87,
+    "chin": 94
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_o69wxyg",
+   "name": "Frankie Edgar",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1981-10-16",
+   "debut": "2007-04-07",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 78,
+    "striking": 90,
+    "wrestlingOff": 89,
+    "wrestlingDef": 95,
+    "ground": 84,
+    "cardio": 99,
+    "chin": 97
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_65aidf6",
+   "name": "Arman Tsarukyan",
+   "nickname": null,
+   "gender": "M",
+   "country": "Armenia",
+   "dob": "1996-10-11",
+   "debut": "2019-04-13",
+   "division": "M_LIGHT",
+   "stats": {
+    "power": 80,
+    "striking": 85,
+    "wrestlingOff": 95,
+    "wrestlingDef": 92,
+    "ground": 90,
+    "cardio": 95,
+    "chin": 92
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_5srm9cj",
+   "name": "Alexander Volkanovski",
+   "nickname": "The Great",
+   "gender": "M",
+   "country": "Australia",
+   "dob": "1988-09-29",
+   "debut": "2016-02-27",
+   "division": "M_FEATHER",
+   "stats": {
+    "power": 80,
+    "striking": 90,
+    "wrestlingOff": 88,
+    "wrestlingDef": 88,
+    "ground": 85,
+    "cardio": 99,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 28,
+    "losses": 4,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 13,
+    "subWins": 3,
+    "decWins": 12,
+    "koLosses": 3,
+    "subLosses": 0,
+    "decLosses": 1
+   },
+   "bonuses": {
+    "fightOfNight": 5,
+    "performanceOfNight": 1
+   },
+   "titleReigns": [
+    {
+     "titleId": "T_28yyui5",
+     "wonDate": "2019-12-14",
+     "lostDate": "2024-02-17",
+     "defenses": 5,
+     "isInterim": false
+    },
+    {
+     "titleId": "T_28yyui5",
+     "wonDate": "2025-04-12",
+     "lostDate": null,
+     "defenses": 1,
+     "isInterim": false
+    }
+   ],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": 114.1,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_w5qibix",
+   "name": "Ilia Topuria",
+   "nickname": "El Matador",
+   "gender": "M",
+   "country": "España",
+   "dob": "1997-01-21",
+   "debut": "2020-10-18",
+   "division": "M_FEATHER",
+   "stats": {
+    "power": 99,
+    "striking": 98,
+    "wrestlingOff": 87,
+    "wrestlingDef": 90,
+    "ground": 92,
+    "cardio": 95,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_cbj8ztx",
+   "name": "Max Holloway",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1991-12-04",
+   "debut": "2012-02-04",
+   "division": "M_FEATHER",
+   "stats": {
+    "power": 85,
+    "striking": 95,
+    "wrestlingOff": 72,
+    "wrestlingDef": 86,
+    "ground": 80,
+    "cardio": 99,
+    "chin": 99
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_6thp28g",
+   "name": "Brian Ortega",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1991-12-21",
+   "debut": "2014-10-04",
+   "division": "M_FEATHER",
+   "stats": {
+    "power": 80,
+    "striking": 85,
+    "wrestlingOff": 84,
+    "wrestlingDef": 86,
+    "ground": 99,
+    "cardio": 90,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "contender"
+  },
+  {
+   "id": "F_a0cby0i",
+   "name": "Jose Aldo",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1986-09-09",
+   "debut": "2004-05-29",
+   "division": "M_FEATHER",
+   "stats": {
+    "power": 92,
+    "striking": 95,
+    "wrestlingOff": 88,
+    "wrestlingDef": 96,
+    "ground": 88,
+    "cardio": 91,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_rwb95l5",
+   "name": "Merab Dvalishvili",
+   "nickname": null,
+   "gender": "M",
+   "country": "Georgia",
+   "dob": "1991-01-10",
+   "debut": "2017-07-07",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 80,
+    "striking": 80,
+    "wrestlingOff": 98,
+    "wrestlingDef": 96,
+    "ground": 86,
+    "cardio": 99,
+    "chin": 94
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_rcl6zjp",
+   "name": "Sean O'Malley",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1994-10-24",
+   "debut": "2017-12-30",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 97,
+    "striking": 97,
+    "wrestlingOff": 75,
+    "wrestlingDef": 88,
+    "ground": 78,
+    "cardio": 92,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_cdc7sng",
+   "name": "Aljamain Sterling",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1989-07-31",
+   "debut": "2014-08-23",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 75,
+    "striking": 87,
+    "wrestlingOff": 95,
+    "wrestlingDef": 92,
+    "ground": 94,
+    "cardio": 93,
+    "chin": 86
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_xpw37rj",
+   "name": "TJ Dillashaw",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1986-12-07",
+   "debut": "2011-12-03",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 85,
+    "striking": 92,
+    "wrestlingOff": 90,
+    "wrestlingDef": 88,
+    "ground": 84,
+    "cardio": 94,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_mhardf4",
+   "name": "Dominick Cruz",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1985-03-09",
+   "debut": "2005-09-24",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 78,
+    "striking": 95,
+    "wrestlingOff": 86,
+    "wrestlingDef": 95,
+    "ground": 82,
+    "cardio": 97,
+    "chin": 91
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_8gzi3fv",
+   "name": "Henry Cejudo",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1987-02-09",
+   "debut": "2013-11-06",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 86,
+    "striking": 89,
+    "wrestlingOff": 97,
+    "wrestlingDef": 98,
+    "ground": 88,
+    "cardio": 90,
+    "chin": 90
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  },
+  {
+   "id": "F_da7cnmj",
+   "name": "Cody Garbrandt",
+   "nickname": null,
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1991-08-02",
+   "debut": "2012-08-11",
+   "division": "M_BANTAM",
+   "stats": {
+    "power": 92,
+    "striking": 94,
+    "wrestlingOff": 84,
+    "wrestlingDef": 90,
+    "ground": 78,
+    "cardio": 88,
+    "chin": 84
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "veteran"
+  },
+  {
+   "id": "F_xptswum",
+   "name": "Alexandre Pantoja",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1990-05-16",
+   "debut": "2011-09-23",
+   "division": "M_FLY",
+   "stats": {
+    "power": 78,
+    "striking": 88,
+    "wrestlingOff": 92,
+    "wrestlingDef": 95,
+    "ground": 97,
+    "cardio": 99,
+    "chin": 95
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_f185li3",
+   "name": "Brandon Moreno",
+   "nickname": "Baby Face Assasin",
+   "gender": "M",
+   "country": "México",
+   "dob": "1993-12-07",
+   "debut": "2016-07-13",
+   "division": "M_FLY",
+   "stats": {
+    "power": 80,
+    "striking": 90,
+    "wrestlingOff": 88,
+    "wrestlingDef": 86,
+    "ground": 96,
+    "cardio": 99,
+    "chin": 93
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_45zjf69",
+   "name": "Deiveson Figueiredo",
+   "nickname": null,
+   "gender": "M",
+   "country": "Brasil",
+   "dob": "1987-12-18",
+   "debut": "2017-03-11",
+   "division": "M_FLY",
+   "stats": {
+    "power": 91,
+    "striking": 88,
+    "wrestlingOff": 84,
+    "wrestlingDef": 86,
+    "ground": 92,
+    "cardio": 87,
+    "chin": 82
+   },
+   "longevity": 100,
+   "status": "active",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "elite"
+  },
+  {
+   "id": "F_fvrxguk",
+   "name": "Demetrious Johnson",
+   "nickname": "Mighty Mouse",
+   "gender": "M",
+   "country": "EE.UU.",
+   "dob": "1986-08-13",
+   "debut": "2007-03-30",
+   "division": "M_FLY",
+   "stats": {
+    "power": 76,
+    "striking": 98,
+    "wrestlingOff": 96,
+    "wrestlingDef": 98,
+    "ground": 96,
+    "cardio": 99,
+    "chin": 94
+   },
+   "longevity": 100,
+   "status": "retired",
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "record": {
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 0,
+    "subWins": 0,
+    "decWins": 0,
+    "koLosses": 0,
+    "subLosses": 0,
+    "decLosses": 0
+   },
+   "bonuses": {
+    "fightOfNight": 0,
+    "performanceOfNight": 0
+   },
+   "titleReigns": [],
+   "fightHistory": [],
+   "lastEventSeq": null,
+   "hof": false,
+   "rankScore": -0.8,
+   "_tier": "legend"
+  }
+ ],
+ "events": [],
+ "log": [
+  {
+   "date": "2026-01-15",
+   "msg": "Liga inicializada con 80 peleadores. Todos los récords en 0-0-0 para edición manual."
+  }
+ ]
+}
