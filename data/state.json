@@ -11,7 +11,7 @@
    "name": "Peso Mosca",
    "gender": "M",
    "limit": 125,
-   "championId": null,
+   "championId": "F_phpiggd",
    "interimChampionId": null
   },
   {
@@ -76,7 +76,7 @@
    "id": "T_br19on6",
    "name": "Cinturón de ♂ Peso Mosca",
    "divisionId": "M_FLY",
-   "holderId": null,
+   "holderId": "F_phpiggd",
    "isInterim": false,
    "history": [
     {
@@ -125,6 +125,12 @@
      "fighterId": "F_xptswum",
      "wonEventId": null,
      "wonDate": "2023-07-08",
+     "isInterim": false
+    },
+    {
+     "fighterId": "F_phpiggd",
+     "wonEventId": null,
+     "wonDate": "2025-12-06",
      "isInterim": false
     }
    ],
@@ -13867,6 +13873,76 @@
    },
    "hof": false,
    "_baseScore": 13.299999999999999
+  },
+  {
+   "id": "F_phpiggd",
+   "fightHistory": [],
+   "titleReigns": [
+    {
+     "titleId": "T_br19on6",
+     "wonDate": "2025-12-06",
+     "lostDate": null,
+     "defenses": 1,
+     "isInterim": false
+    }
+   ],
+   "bonuses": {
+    "fightOfNight": 2,
+    "performanceOfNight": 0
+   },
+   "injury": {
+    "active": false,
+    "untilDate": null,
+    "note": ""
+   },
+   "lastEventSeq": null,
+   "rankScore": 51.7,
+   "name": "Jhosua Van",
+   "nickname": "The Fearless",
+   "gender": "M",
+   "country": "Birmania",
+   "dob": "2001-10-10",
+   "debut": "2023-06-24",
+   "division": "M_FLY",
+   "status": "active",
+   "imageUrl": "https://www.ufc.com/images/styles/athlete_bio_full_body/s3/2026-05/VAN_JOSHUA_L_BELT_05-09.png?itok=emXQEdHo",
+   "fightStyle": "pressure",
+   "stats": {
+    "power": 84,
+    "striking": 99,
+    "wrestlingOff": 73,
+    "wrestlingDef": 85,
+    "ground": 81,
+    "cardio": 99,
+    "chin": 90
+   },
+   "longevity": 100,
+   "chinDamage": 2,
+   "momentum": 0,
+   "reputation": 50,
+   "record": {
+    "wins": 17,
+    "losses": 2,
+    "draws": 0,
+    "nc": 0,
+    "koWins": 9,
+    "subWins": 2,
+    "decWins": 6,
+    "koLosses": 1,
+    "subLosses": 1,
+    "decLosses": 0,
+    "ufcFights": 11,
+    "ufcWins": 10,
+    "ufcLosses": 1,
+    "ufcKoWins": 4,
+    "ufcSubWins": 0,
+    "ufcDecWins": 6,
+    "ufcKoLosses": 1,
+    "ufcSubLosses": 0,
+    "ufcDecLosses": 0
+   },
+   "hof": false,
+   "_baseScore": 51.7
   }
  ],
  "events": [
