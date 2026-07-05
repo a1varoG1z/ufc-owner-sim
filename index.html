@@ -9,6 +9,7 @@
     --bg:#0c0d10; --bg2:#15171c; --bg3:#1d2027; --line:#2a2e38;
     --red:#d7263d; --red2:#a81f31; --gold:#e3b341; --green:#3fbf6f; --blue:#4d9de0;
     --txt:#e9e9ee; --txt2:#9aa0ad; --txt3:#666c79;
+    --ko:#ef5350; --sub:#ce93d8; --dec:#90caf9;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
@@ -84,6 +85,17 @@
   .fv-win-badge{background:var(--gold);color:#1a1300;font-weight:800;font-size:.7rem;padding:2px 8px;border-radius:20px;margin-top:4px}
   .fv-loss-badge{background:var(--bg3);color:var(--muted);font-size:.7rem;padding:2px 8px;border-radius:20px;margin-top:4px}
   .fv-winner-line{text-align:center;padding:8px;background:var(--bg3);border-radius:8px;margin-top:4px}
+  /* Fight Viewer — modal unificado con el resto de la app (usa las mismas variables de tema) */
+  .fv-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:10px 0;overflow-y:auto}
+  .fv-modal{background:var(--bg2);width:100%;max-width:480px;border-radius:14px;overflow:hidden;border:1px solid var(--line);max-height:92vh;overflow-y:auto}
+  .fv-head{background:var(--bg3);padding:10px 14px;border-bottom:1px solid var(--line)}
+  .fv-panel{background:var(--bg3);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.7rem}
+  .fv-narr{background:var(--bg3);border:1px solid var(--line);border-radius:8px;padding:14px;min-height:100px}
+  .fv-live{display:inline-flex;align-items:center;gap:6px;font-size:.65rem;color:var(--gold);text-transform:uppercase;letter-spacing:1px;font-weight:700}
+  .fv-live-dot{width:7px;height:7px;border-radius:50%;background:var(--gold);animation:fvPulse 1s infinite}
+  @keyframes fvPulse{0%,100%{opacity:1}50%{opacity:.25}}
+  @keyframes fvShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+  .fv-hit{animation:fvShake .35s}
 </style>
 </head>
 <body>
@@ -997,8 +1009,8 @@ function methodLabel(resultOrFt){
 }
 // Color del método
 function methodColor(m){
-  if(!m) return '#90caf9';
-  return m==='KO/TKO'?'#ef5350':m==='Sumisión'?'#ce93d8':'#90caf9';
+  if(!m) return 'var(--dec)';
+  return m==='KO/TKO'?'var(--ko)':m==='Sumisión'?'var(--sub)':'var(--dec)';
 }
 
 // Derived career stats (computed on demand)
@@ -3176,7 +3188,130 @@ function openLiveFightViewer(ev){
   let fightIdx = 0; // 0 = first prelim (card reversed), last index = main event
   let phase = 'prefight';
   let roundIdx = 0;
+  // Ticker en vivo asalto a asalto (punto 3): reproduce las acciones reales que
+  // ya calcula _simRound (rd.actions) en vez de saltar directo al resumen del asalto.
+  let tickerMode = 'ticker'; // 'ticker' = reproduciendo golpe a golpe · 'summary' = resumen del asalto
+  let tickerIdx = 0;
+  let tickerPlaying = true;
+  let tickerSpeedIdx = 1; // 0=Lento 1=Normal 2=Rápido
+  let tickerTimer = null;
   const totalFights = results.length;
+  function clearTicker(){ if(tickerTimer){ clearTimeout(tickerTimer); tickerTimer=null; } }
+
+  // Salud inicial de un peleador al comienzo del combate (misma fórmula que simulateFight)
+  function fvInitialHealth(f){
+    const careerDmg=(f.chinDamage||0)*4;
+    return {head:Math.max(40,100-careerDmg), body:100, legs:100};
+  }
+  // Salud con la que arranca un asalto: la de cierre del asalto anterior, o la inicial en R1
+  function fvRoundStartHealth(fi, ri){
+    const {fA, fB, result} = results[fi];
+    const prev = (result.roundDetails||[])[ri-1];
+    return {
+      hA: prev ? {...prev.hA} : fvInitialHealth(fA),
+      hB: prev ? {...prev.hB} : fvInitialHealth(fB),
+    };
+  }
+  // Reproduce las acciones de un asalto hasta el índice `uptoIdx` (incluido) y devuelve
+  // las stats y la salud acumuladas hasta ese punto — misma aritmética que usa _simRound/simulateFight,
+  // solo que aplicada acción a acción en vez de todas juntas al final del asalto.
+  function fvReplayRound(fi, ri, uptoIdx){
+    const {result} = results[fi];
+    const rd = (result.roundDetails||[])[ri];
+    const acts = (rd?.actions||[]).slice(0, uptoIdx+1);
+    const {hA:startHA, hB:startHB} = fvRoundStartHealth(fi, ri);
+    let hA={...startHA}, hB={...startHB};
+    const stA=_emptyStats(), stB=_emptyStats();
+    acts.forEach(act=>{
+      if(act.sigA){stA.sigL+=act.sigA;stA.sigA+=act.sigA;}
+      if(act.missA) stA.sigA+=act.missA;
+      if(act.tdAttA) stA.tdAtt++; if(act.tdLandedA) stA.tdL++;
+      if(act.subAttA) stA.subAtt++; if(act.kdB) stA.kd++;
+      if(act.ctrlA) stA.ctrl+=act.ctrlA;
+      if(act.sigB){stB.sigL+=act.sigB;stB.sigA+=act.sigB;}
+      if(act.missB) stB.sigA+=act.missB;
+      if(act.tdAttB) stB.tdAtt++; if(act.tdLandedB) stB.tdL++;
+      if(act.subAttB) stB.subAtt++; if(act.kdA) stB.kd++;
+      if(act.ctrlB) stB.ctrl+=act.ctrlB;
+      if(act.dB>0){ const z=act.zoneA||'head'; const f=z==='legs'?1.5:z==='body'?1.08:0.35; hB[z]=Math.max(0,hB[z]-act.dB*f); }
+      if(act.dA>0){ const z=act.zoneB||'head'; const f=z==='legs'?1.5:z==='body'?1.08:0.35; hA[z]=Math.max(0,hA[z]-act.dA*f); }
+    });
+    return {statsA:stA, statsB:stB, hA, hB};
+  }
+  // Stats/salud acumuladas de todo el combate hasta la acción `tickerIdx` del asalto `ri`
+  // (rondas anteriores completas + reproducción parcial de la ronda actual)
+  function fvCumulative(fi, ri, uptoIdx){
+    const {result} = results[fi];
+    const rds=result.roundDetails||[];
+    const cumA=_emptyStats(), cumB=_emptyStats();
+    for(let k=0;k<ri;k++){
+      const rd=rds[k]; if(!rd) continue;
+      ['sigL','tdL','subAtt','kd','ctrl'].forEach(key=>{ cumA[key]+=(rd.statsA?.[key]||0); cumB[key]+=(rd.statsB?.[key]||0); });
+    }
+    const partial=fvReplayRound(fi, ri, uptoIdx);
+    ['sigL','tdL','subAtt','kd','ctrl'].forEach(key=>{ cumA[key]+=partial.statsA[key]; cumB[key]+=partial.statsB[key]; });
+    return {cumA, cumB, hA:partial.hA, hB:partial.hB};
+  }
+  // Panel compartido de stats acumuladas + salud por zona — usado tanto por el ticker en vivo
+  // como por el resumen del asalto, para no duplicar el marcado dos veces.
+  function fvStatPanel(cumA, cumB, hA, hB, fA, fB){
+    const hBar=(v,col)=>`<div style="height:5px;border-radius:2px;background:var(--bg);overflow:hidden"><div style="width:${Math.round(v)}%;height:100%;background:${col};transition:width .3s"></div></div>`;
+    const totActA = cumA.sigL + cumA.kd*6 + cumA.tdL*4 + cumA.subAtt*2;
+    const totActB = cumB.sigL + cumB.kd*6 + cumB.tdL*4 + cumB.subAtt*2;
+    const totAct = totActA+totActB||1;
+    const pActA = Math.round(totActA/totAct*100);
+    const grappA = cumA.tdL*5 + cumA.subAtt*2 + Math.round(cumA.ctrl/20);
+    const grappB = cumB.tdL*5 + cumB.subAtt*2 + Math.round(cumB.ctrl/20);
+    const hasGrappling = grappA+grappB>0;
+    const pGrappA = Math.round(grappA/(grappA+grappB||1)*100);
+    return `<div class="fv-panel">
+      <div style="display:grid;grid-template-columns:1fr 76px 1fr;gap:3px;align-items:center;margin-bottom:8px">
+        <div style="color:var(--red);font-weight:700;text-align:right">${cumA.sigL}</div>
+        <div style="text-align:center;color:var(--txt3);font-size:.62rem">Sig. Strikes</div>
+        <div style="color:var(--blue);font-weight:700">${cumB.sigL}</div>
+        <div style="color:var(--red);font-weight:700;text-align:right">${cumA.tdL}</div>
+        <div style="text-align:center;color:var(--txt3);font-size:.62rem">Derribos</div>
+        <div style="color:var(--blue);font-weight:700">${cumB.tdL}</div>
+        <div style="color:var(--red);font-weight:700;text-align:right">${cumA.subAtt}</div>
+        <div style="text-align:center;color:var(--txt3);font-size:.62rem">Sub att.</div>
+        <div style="color:var(--blue);font-weight:700">${cumB.subAtt}</div>
+        <div style="color:var(--red);font-weight:700;text-align:right">${cumA.kd}</div>
+        <div style="text-align:center;color:var(--txt3);font-size:.62rem">KDs</div>
+        <div style="color:var(--blue);font-weight:700">${cumB.kd}</div>
+      </div>
+      <div style="margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span style="font-size:.55rem;color:var(--red)">${cumA.sigL}sig ${cumA.kd>0?cumA.kd+'KD ':''}</span>
+          <span style="font-size:.54rem;color:var(--txt3)">Actividad</span>
+          <span style="font-size:.55rem;color:var(--blue)">${cumB.sigL}sig ${cumB.kd>0?cumB.kd+'KD ':''}</span>
+        </div>
+        <div style="display:flex;height:5px;border-radius:3px;overflow:hidden;margin-bottom:${hasGrappling?'6':'0'}px">
+          <div style="width:${pActA}%;background:var(--red);transition:width .3s"></div>
+          <div style="width:${100-pActA}%;background:var(--blue);transition:width .3s"></div>
+        </div>
+        ${hasGrappling?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span style="font-size:.55rem;color:#e57373">${cumA.tdL}TD ${cumA.ctrl>0?Math.round(cumA.ctrl/60*10)/10+'min ':''}</span>
+          <span style="font-size:.54rem;color:var(--txt3)">Grappling</span>
+          <span style="font-size:.55rem;color:#82b1ff">${cumB.tdL}TD ${cumB.ctrl>0?Math.round(cumB.ctrl/60*10)/10+'min ':''}</span>
+        </div>
+        <div style="display:flex;height:5px;border-radius:3px;overflow:hidden">
+          <div style="width:${pGrappA}%;background:#e57373;transition:width .3s"></div>
+          <div style="width:${100-pGrappA}%;background:#82b1ff;transition:width .3s"></div>
+        </div>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:4px;font-size:.62rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+        <span>${fA.name.split(' ').pop()}</span><span>Salud corporal</span><span style="text-align:right">${fB.name.split(' ').pop()}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 50px 1fr;gap:3px;align-items:center">
+        ${hBar(hA.head,'var(--ko)')}<div style="text-align:center;color:var(--txt3);font-size:.6rem">Cabeza</div>${hBar(hB.head,'var(--ko)')}
+        ${hBar(hA.body,'#ff9800')}<div style="text-align:center;color:var(--txt3);font-size:.6rem">Cuerpo</div>${hBar(hB.body,'#ff9800')}
+        ${hBar(hA.legs,'var(--green)')}<div style="text-align:center;color:var(--txt3);font-size:.6rem">Piernas</div>${hBar(hB.legs,'var(--green)')}
+      </div>
+    </div>`;
+  }
+  const FV_POS_LABEL={standing:'🥊 De pie', clinch:'🤼 Clinch', ground_A_top:'🔒 Suelo', ground_B_top:'🔒 Suelo', back_A:'🔒 Espalda', back_B:'🔒 Espalda'};
+  const FV_SPEEDS=[1700,1000,550];
+  const FV_SPEED_LABELS=['Lento','Normal','Rápido'];
 
   // Usar los roundScores REALES devueltos por simulateFight — así el marcador del viewer
   // es exactamente consistente con el resultado final. Fin al bug de "va 2-0 pero pierde".
@@ -3268,17 +3403,19 @@ function openLiveFightViewer(ev){
   });
 
   function renderFightViewer(){
+    clearTicker();
     const {fight, fA, fB, result, narrative} = results[fightIdx];
     const title = fight.titleId? STATE.titles.find(t=>t.id===fight.titleId):null;
     const w=result.winner, l=result.loser;
     const isKO=result.method==='KO/TKO', isSub=result.method==='Sumisión';
+    const resultMethodColor = isKO?'var(--ko)':isSub?'var(--sub)':'var(--dec)';
     const probA = winProbabilities(fA,fB,result.rounds||3).probA;
     const probB = 100-probA;
     // Fight type — determines visual style
     const isTitle=!!fight.titleId, isRivalFight=isRival(fA.id,fB.id), isContenderFight=!!fight.isContender;
     const fightTypeLabel=isTitle?(fight.isInterim?'🥈 Pelea por el título interino':'🏆 Pelea por el título'):isContenderFight?'🥊 Pelea de contendiente':isRivalFight?'⚔️ Rivalidad':'';
-    const headerBg=isTitle?'linear-gradient(90deg,#5a0000,#000,#4a3000)':isContenderFight?'linear-gradient(90deg,#00205a,#000,#00205a)':isRivalFight?'linear-gradient(90deg,#3a0060,#000,#3a0060)':'#1a1a1a';
-    const borderColor=isTitle?'#d4af37':isContenderFight?'#82b1ff':isRivalFight?'#ce93d8':'#333';
+    const headerBg=isTitle?'linear-gradient(90deg,#5a0000,#000,#4a3000)':isContenderFight?'linear-gradient(90deg,#00205a,#000,#00205a)':isRivalFight?'linear-gradient(90deg,#3a0060,#000,#3a0060)':'var(--bg3)';
+    const borderColor=isTitle?'var(--gold)':isContenderFight?'#82b1ff':isRivalFight?'var(--sub)':'var(--line)';
     // Rankings
     const p4pRankA=getPfpRank(fA), p4pRankB=getPfpRank(fB);
     const divRankA=getDivRank(fA), divRankB=getDivRank(fB);
@@ -3288,8 +3425,8 @@ function openLiveFightViewer(ev){
     if(phase==='prefight'){
       // PANTALLA PRE-COMBATE: vs screen con stats y probabilidades
       document.getElementById('modalRoot').innerHTML=`
-      <div class="modal-bg" id="modalBg" style="align-items:flex-start;padding-top:12px;background:rgba(0,0,0,.92)">
-        <div class="modal" style="max-width:480px;background:#111;border:1px solid ${borderColor};padding:0;overflow-y:auto;max-height:92vh">
+      <div class="fv-modal-bg" id="modalBg">
+        <div class="fv-modal" style="border-color:${borderColor}">
           <div style="background:${headerBg};padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
             <span class="muted" style="font-size:.75rem">Combate ${fightIdx+1}/${totalFights} · ${fName(ev)}</span>
             ${fightTypeLabel?`<span style="font-size:.78rem;font-weight:700;color:${borderColor}">${fightTypeLabel}</span>`:title?`<span style="font-size:.8rem">${titleIcon(title)} ${fName(title)}${fight.isInterim?' (Interino)':''}</span>`:''}
@@ -3299,35 +3436,35 @@ function openLiveFightViewer(ev){
               <div style="flex:1;text-align:center;display:flex;flex-direction:column;align-items:center">
                 ${avatarHtml(fA,88)}
                 <div style="font-weight:700;margin-top:8px;font-size:.9rem">${fName(fA)}</div>
-                <div class="muted" style="font-size:.72rem">${fA.record.wins}-${fA.record.losses} · <span style="color:#ef5350">${fA.record.koWins||0}KO</span> <span style="color:#ce93d8">${fA.record.subWins||0}Sub</span></div>
+                <div class="muted" style="font-size:.72rem">${fA.record.wins}-${fA.record.losses} · <span style="color:var(--ko)">${fA.record.koWins||0}KO</span> <span style="color:var(--sub)">${fA.record.subWins||0}Sub</span></div>
                 ${rankTagA?`<div style="font-size:.66rem;color:#82b1ff;margin-top:1px">${rankTagA}</div>`:''}
-                <div style="font-size:.68rem;margin-top:2px;color:#888">${(FIGHT_STYLES[fA.fightStyle||'technical']?.icon||'🧠')} ${(FIGHT_STYLES[fA.fightStyle||'technical']?.label||'Técnico')}</div>
+                <div style="font-size:.68rem;margin-top:2px;color:var(--txt2)">${(FIGHT_STYLES[fA.fightStyle||'technical']?.icon||'🧠')} ${(FIGHT_STYLES[fA.fightStyle||'technical']?.label||'Técnico')}</div>
               </div>
               <div style="text-align:center;color:${borderColor};font-size:1.8rem;font-weight:900;min-width:36px;padding-top:28px">VS</div>
               <div style="flex:1;text-align:center;display:flex;flex-direction:column;align-items:center">
                 ${avatarHtml(fB,88)}
                 <div style="font-weight:700;margin-top:8px;font-size:.9rem">${fName(fB)}</div>
-                <div class="muted" style="font-size:.72rem">${fB.record.wins}-${fB.record.losses} · <span style="color:#ef5350">${fB.record.koWins||0}KO</span> <span style="color:#ce93d8">${fB.record.subWins||0}Sub</span></div>
+                <div class="muted" style="font-size:.72rem">${fB.record.wins}-${fB.record.losses} · <span style="color:var(--ko)">${fB.record.koWins||0}KO</span> <span style="color:var(--sub)">${fB.record.subWins||0}Sub</span></div>
                 ${rankTagB?`<div style="font-size:.66rem;color:#82b1ff;margin-top:1px">${rankTagB}</div>`:''}
-                <div style="font-size:.68rem;margin-top:2px;color:#888">${(FIGHT_STYLES[fB.fightStyle||'technical']?.icon||'🧠')} ${(FIGHT_STYLES[fB.fightStyle||'technical']?.label||'Técnico')}</div>
+                <div style="font-size:.68rem;margin-top:2px;color:var(--txt2)">${(FIGHT_STYLES[fB.fightStyle||'technical']?.icon||'🧠')} ${(FIGHT_STYLES[fB.fightStyle||'technical']?.label||'Técnico')}</div>
               </div>
             </div>
-            <div style="margin:14px 0 8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:#888;text-align:center">Probabilidades (simulación)</div>
+            <div style="margin:14px 0 8px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:var(--txt2);text-align:center">Probabilidades (simulación)</div>
             <div style="display:flex;border-radius:6px;overflow:hidden;height:28px">
-              <div style="width:${probA}%;background:#e53935;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:#fff">${probA.toFixed(0)}%</div>
-              <div style="width:${probB}%;background:#1565c0;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:#fff">${probB.toFixed(0)}%</div>
+              <div style="width:${probA}%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:#fff">${probA.toFixed(0)}%</div>
+              <div style="width:${probB}%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:#fff">${probB.toFixed(0)}%</div>
             </div>
             <div style="display:flex;justify-content:space-between;margin-top:2px">
-              <span style="font-size:.7rem;color:#888">${fName(fA)}</span>
-              <span style="font-size:.7rem;color:#888">${fName(fB)}</span>
+              <span style="font-size:.7rem;color:var(--txt2)">${fName(fA)}</span>
+              <span style="font-size:.7rem;color:var(--txt2)">${fName(fB)}</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px;font-size:.75rem">
               ${[['Pegada','striking'],['Potencia','power'],['Wrestling Of.','wrestlingOff'],['Defensa W.','wrestlingDef'],['Suelo','ground'],['Cardio','cardio'],['Resistencia','chin']].map(([lbl,k])=>{
                 const va=fA.stats[k], vb=fB.stats[k];
                 return `<div style="grid-column:1/-1;display:grid;grid-template-columns:1fr 40px 1fr;gap:4px;align-items:center">
-                  <div style="height:6px;border-radius:3px;background:linear-gradient(to left, #e53935, transparent);width:${va}%"></div>
-                  <div style="text-align:center;color:#555;font-size:.65rem">${lbl}</div>
-                  <div style="height:6px;border-radius:3px;background:linear-gradient(to right, #1565c0, transparent);width:${vb}%"></div>
+                  <div style="height:6px;border-radius:3px;background:linear-gradient(to left, var(--red), transparent);width:${va}%"></div>
+                  <div style="text-align:center;color:var(--txt3);font-size:.65rem">${lbl}</div>
+                  <div style="height:6px;border-radius:3px;background:linear-gradient(to right, var(--blue), transparent);width:${vb}%"></div>
                 </div>`;
               }).join('')}
             </div>
@@ -3340,9 +3477,9 @@ function openLiveFightViewer(ev){
           ${(()=>{const prev=fightRematches[fightIdx]; if(!prev.length) return '';
             const last=prev[prev.length-1]; const won=last.winnerId===fA.id;
             const mc=methodColor(last.method);
-            return `<div style="padding:0 14px 12px;background:#0d0d0d;margin:0 1px;border-top:1px solid #1a1a1a">
-              <div style="font-size:.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚔️ Contexto — ${prev.length===1?'Primera revancha':prev.length===2?'Trilogía':'Pelea #'+(prev.length+1)}</div>
-              <div style="font-size:.78rem">En su último encuentro, <b style="color:${won?'#e53935':'#1565c0'}">${won?fA.name:fB.name}</b> venció por <span style="color:${mc}">${last.method}</span> R${last.round} <span style="color:#555">(${last.date?.slice(0,7)||''})</span></div>
+            return `<div style="padding:0 14px 12px;background:var(--bg3);margin:0 1px;border-top:1px solid var(--line)">
+              <div style="font-size:.65rem;color:var(--txt2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚔️ Contexto — ${prev.length===1?'Primera revancha':prev.length===2?'Trilogía':'Pelea #'+(prev.length+1)}</div>
+              <div style="font-size:.78rem">En su último encuentro, <b style="color:${won?'var(--red)':'var(--blue)'}">${won?fA.name:fB.name}</b> venció por <span style="color:${mc}">${last.method}</span> R${last.round} <span style="color:var(--txt3)">(${last.date?.slice(0,7)||''})</span></div>
             </div>`;
           })()}
           <div style="padding:0 14px 12px;text-align:center">
@@ -3350,20 +3487,20 @@ function openLiveFightViewer(ev){
           </div>
         </div>
       </div>`;
-      document.getElementById('fvStart').onclick=()=>{ phase='rounds'; roundIdx=0; renderFightViewer(); };
+      document.getElementById('fvStart').onclick=()=>{ phase='rounds'; roundIdx=0; tickerMode='ticker'; tickerIdx=0; tickerPlaying=true; renderFightViewer(); };
       if(document.getElementById('fvSkipAll')) document.getElementById('fvSkipAll').onclick=()=>{ skipAllRemaining(); };
       if(document.getElementById('fvSimNext')) document.getElementById('fvSimNext').onclick=()=>{
         // Solo avanzar — todos los resultados se aplican juntos al final por applyAllAndFinish
         if(fightIdx<results.length-1){ fightIdx++; phase='prefight'; roundIdx=0; renderFightViewer(); }
         else { applyAllAndFinish(); }
       };
-      document.getElementById('fvCancel').onclick=()=>{ if(confirm('¿Cancelar sin guardar resultados?')) closeModal(); };
+      document.getElementById('fvCancel').onclick=()=>{ if(confirm('¿Cancelar sin guardar resultados?')){ clearTicker(); closeModal(); } };
 
     } else if(phase==='rounds'){
-      // PANTALLA DE ROUNDS: narrativa asalto a asalto + marcador en vivo
+      // PANTALLA DE ROUNDS: ticker en vivo golpe a golpe (fase 'ticker') + resumen del asalto (fase 'summary')
       const roundData = narrative[roundIdx];
-      const totalRounds = result.totalRounds||3;
-      const isLastRound = roundIdx===totalRounds-1;
+      const roundsFought = narrative.length; // rondas realmente disputadas (no las programadas — evita el bug de marcar mal el asalto final en un KO temprano)
+      const isLastRound = roundIdx===roundsFought-1;
       const isFinishRound = isLastRound && result.method!=='Decisión';
 
       // Usar los scores pre-calculados (fijos para todo el combate, no cambian al navegar)
@@ -3372,16 +3509,15 @@ function openLiveFightViewer(ev){
       const scoreHistory = allRoundScores.slice(0, roundIdx);
       const roundsA = scoreHistory.filter(x=>x==='A').length;
       const roundsB = scoreHistory.filter(x=>x==='B').length;
-      const methodColor = isKO?'#ef5350':isSub?'#ce93d8':'#90caf9';
 
       // Scorecard visual: casillas por asalto
       const scorecardHtml = Array.from({length:result.totalRounds||3},(_,i)=>{
-        let bg='#222', symbol='·';
+        let bg='var(--bg)', symbol='·';
         const s = allRoundScores[i];
-        if(i < roundIdx){
-          if(s==='A'){ bg='rgba(229,57,53,.4)'; symbol='▲'; }
-          else if(s==='B'){ bg='rgba(21,101,192,.4)'; symbol='▼'; }
-          else if(s==='finish'){ bg='rgba(212,175,55,.3)'; symbol='★'; }
+        if(i < roundIdx || (i===roundIdx && tickerMode==='summary')){
+          if(s==='A'){ bg='rgba(215,38,61,.4)'; symbol='▲'; }
+          else if(s==='B'){ bg='rgba(77,157,224,.4)'; symbol='▼'; }
+          else if(s==='finish'){ bg='rgba(227,179,65,.3)'; symbol='★'; }
           else { bg='rgba(100,100,100,.4)'; symbol='='; }
         } else if(i===roundIdx){ bg='rgba(255,255,255,.15)'; symbol=`R${i+1}`; }
         return `<div style="flex:1;height:26px;border-radius:4px;background:${bg};display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;color:#fff">${symbol}</div>`;
@@ -3391,169 +3527,134 @@ function openLiveFightViewer(ev){
       let advantageHtml='';
       if(roundIdx>0 && !isFinishRound){
         if(roundsA>roundsB){
-          advantageHtml=`<div style="text-align:center;font-size:.72rem;color:#e53935;font-weight:700;margin-top:4px">${fName(fA)} va ganando en tarjetas (${roundsA}-${roundsB})</div>`;
+          advantageHtml=`<div style="text-align:center;font-size:.72rem;color:var(--red);font-weight:700;margin-top:4px">${fName(fA)} va ganando en tarjetas (${roundsA}-${roundsB})</div>`;
         } else if(roundsB>roundsA){
-          advantageHtml=`<div style="text-align:center;font-size:.72rem;color:#1565c0;font-weight:700;margin-top:4px">${fName(fB)} va ganando en tarjetas (${roundsB}-${roundsA})</div>`;
+          advantageHtml=`<div style="text-align:center;font-size:.72rem;color:var(--blue);font-weight:700;margin-top:4px">${fName(fB)} va ganando en tarjetas (${roundsB}-${roundsA})</div>`;
         } else {
-          advantageHtml=`<div style="text-align:center;font-size:.72rem;color:#888;margin-top:4px">Empatados en tarjetas (${roundsA}-${roundsB})</div>`;
+          advantageHtml=`<div style="text-align:center;font-size:.72rem;color:var(--txt2);margin-top:4px">Empatados en tarjetas (${roundsA}-${roundsB})</div>`;
         }
       }
 
+      const fvHeaderHtml=`
+        <div class="fv-head">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:.72rem;color:var(--txt3)">${fName(ev)} · Combate ${fightIdx+1}/${totalFights}${title?' · '+titleIcon(title)+' '+title.name:''}</span>
+            <span style="font-size:.8rem;font-weight:800;color:#fff;background:var(--bg);padding:2px 10px;border-radius:12px">R${roundIdx+1}</span>
+          </div>
+          <div style="display:flex;gap:3px">${scorecardHtml}</div>
+          ${advantageHtml}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 0;gap:8px">
+          <div style="flex:1;display:flex;align-items:center;gap:8px">
+            ${avatarHtml(fA,40)}
+            <div>
+              <div style="font-weight:700;font-size:.82rem">${fName(fA)}</div>
+              <div style="font-size:.68rem;color:var(--txt2)">${fA.record.wins}-${fA.record.losses} · <span style="color:var(--ko)">${fA.record.koWins||0}KO</span> <span style="color:var(--sub)">${fA.record.subWins||0}Sub</span></div>
+            </div>
+          </div>
+          <div style="font-size:1rem;font-weight:900;color:var(--txt3)">VS</div>
+          <div style="flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px">
+            <div style="text-align:right">
+              <div style="font-weight:700;font-size:.82rem">${fName(fB)}</div>
+              <div style="font-size:.68rem;color:var(--txt2)">${fB.record.wins}-${fB.record.losses} · <span style="color:var(--ko)">${fB.record.koWins||0}KO</span> <span style="color:var(--sub)">${fB.record.subWins||0}Sub</span></div>
+            </div>
+            ${avatarHtml(fB,40)}
+          </div>
+        </div>`;
+
+      if(tickerMode==='ticker'){
+        // ── TICKER EN VIVO: reproduce las acciones reales del asalto una a una ──
+        const rd = result.roundDetails[roundIdx];
+        const acts = rd?.actions||[];
+        if(!acts.length){ tickerMode='summary'; renderFightViewer(); return; }
+        if(tickerIdx>acts.length-1) tickerIdx=acts.length-1;
+        const act=acts[tickerIdx];
+        const isFinAct = !!act.fin;
+        // Posición EN LA QUE OCURRE esta acción (antes de aplicar su propio npos, que es el resultado)
+        let _p='standing'; for(let k=0;k<tickerIdx;k++){ _p=acts[k].npos||_p; }
+        const posLabel = FV_POS_LABEL[_p]||'🥊 De pie';
+        const prevLines = acts.slice(Math.max(0,tickerIdx-2), tickerIdx).map(a=>a.narr).filter(Boolean);
+        const {cumA, cumB, hA, hB} = fvCumulative(fightIdx, roundIdx, tickerIdx);
+
+        document.getElementById('modalRoot').innerHTML=`
+        <div class="fv-modal-bg" id="modalBg">
+          <div class="fv-modal">
+            ${fvHeaderHtml}
+            <div style="padding:10px 14px 0">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <span class="fv-live"><span class="fv-live-dot"></span> En vivo</span>
+                <span style="font-size:.65rem;color:var(--txt3)">${posLabel} · Acción ${tickerIdx+1}/${acts.length}</span>
+              </div>
+              ${fvStatPanel(cumA, cumB, hA, hB, fA, fB)}
+              <div class="fv-narr ${isFinAct?'fv-hit':''}" id="fvTapArea" style="cursor:pointer;${isFinAct?'border-color:var(--gold)':''}">
+                ${prevLines.map(l=>`<p style="margin:0 0 8px;font-size:.78rem;line-height:1.5;color:var(--txt3)">${l}</p>`).join('')}
+                <p style="margin:0;font-size:${isFinAct?'1rem':'.92rem'};font-weight:${isFinAct?800:400};line-height:1.6;color:${isFinAct?'var(--gold)':'#fff'}">${act.narr||'…'}</p>
+              </div>
+              <div style="font-size:.62rem;color:var(--txt3);text-align:center;margin-top:4px">Toca el recuadro para avanzar</div>
+            </div>
+            <div style="padding:12px 14px 6px;display:flex;gap:8px">
+              <button class="btn small" id="fvTickerPrev" ${tickerIdx===0?'disabled':''} style="min-width:44px">◀</button>
+              <button class="btn ${tickerPlaying?'gold':'green'} full" id="fvTickerPlay">${tickerPlaying?'⏸ Pausa':'▶ Reanudar'}</button>
+              <button class="btn small" id="fvTickerSpeed" style="white-space:nowrap">${FV_SPEED_LABELS[tickerSpeedIdx]}</button>
+            </div>
+            <div style="padding:0 14px 14px">
+              <button class="btn primary full" id="fvTickerSkip">⏭ Ir al resumen del asalto</button>
+            </div>
+            <div style="text-align:center;padding:0 14px 12px">
+              <button class="btn small" id="fvSkipRest" style="color:var(--txt2);font-size:.72rem">⏩ Simular resto rápido</button>
+            </div>
+          </div>
+        </div>`;
+
+        const advance=()=>{
+          if(tickerIdx<acts.length-1){ tickerIdx++; } else { tickerMode='summary'; }
+          renderFightViewer();
+        };
+        document.getElementById('fvTickerPlay').onclick=()=>{ tickerPlaying=!tickerPlaying; renderFightViewer(); };
+        document.getElementById('fvTickerSpeed').onclick=()=>{ tickerSpeedIdx=(tickerSpeedIdx+1)%3; renderFightViewer(); };
+        document.getElementById('fvTickerSkip').onclick=()=>{ tickerMode='summary'; renderFightViewer(); };
+        document.getElementById('fvSkipRest').onclick=skipAllRemaining;
+        document.getElementById('fvTickerPrev').onclick=()=>{ tickerPlaying=false; if(tickerIdx>0){ tickerIdx--; renderFightViewer(); } };
+        document.getElementById('fvTapArea').onclick=()=>{ tickerPlaying=false; advance(); };
+
+        if(tickerPlaying){ tickerTimer=setTimeout(advance, FV_SPEEDS[tickerSpeedIdx]); }
+        return;
+      }
+
+      // ── RESUMEN DEL ASALTO (tras el ticker, o al saltarlo) ──
       // Separar líneas normales de la línea de finalización
       const normalLines = isFinishRound ? roundData.lines.slice(0,-1) : roundData.lines;
       const finishLine = isFinishRound ? roundData.lines[roundData.lines.length-1] : null;
+      const summaryActs = (result.roundDetails[roundIdx]?.actions||[]);
+      const {cumA:sumCumA, cumB:sumCumB, hA:sumHA, hB:sumHB} = fvCumulative(fightIdx, roundIdx, summaryActs.length-1);
 
       document.getElementById('modalRoot').innerHTML=`
-      <div class="modal-bg" id="modalBg" style="align-items:flex-start;padding-top:10px;background:rgba(0,0,0,.93)">
-        <div class="modal" style="max-width:480px;background:#111;border:1px solid #2a2a2a;padding:0;overflow-y:auto;max-height:92vh">
-
-          <!-- Header -->
-          <div style="background:#0d0d0d;padding:10px 14px;border-bottom:1px solid #1e1e1e">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <span style="font-size:.72rem;color:#555">${fName(ev)} · Combate ${fightIdx+1}/${totalFights}${title?' · '+titleIcon(title)+' '+title.name:''}</span>
-              <span style="font-size:.8rem;font-weight:800;color:#fff;background:#333;padding:2px 10px;border-radius:12px">R${roundIdx+1}</span>
-            </div>
-            <!-- Scorecards por asalto -->
-            <div style="display:flex;gap:3px">${scorecardHtml}</div>
-            ${advantageHtml}
-            ${(()=>{
-              // Barra dominancia del asalto actual (sig strikes + TD del asalto)
-              const curRd=result.roundDetails?.[roundIdx];
-              if(!curRd) return '';
-              const sA=curRd.statsA?.sigL||0, sB=curRd.statsB?.sigL||0;
-              const tdA=curRd.statsA?.tdL||0, tdB=curRd.statsB?.tdL||0;
-              const scoreA=(curRd.scoreA||0), scoreB=(curRd.scoreB||0);
-              const tot=scoreA+scoreB||1;
-              const pctA=Math.round(scoreA/tot*100);
-              const pctB=100-pctA;
-              if(sA===0&&sB===0) return '';
-              return `<div style="margin-top:5px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-                  <span style="font-size:.58rem;color:#e53935">${sA} sig / ${tdA}TD</span>
-                  <span style="font-size:.56rem;color:#777;font-weight:700">⚡ Actividad total R${roundIdx+1}</span>
-                  <span style="font-size:.58rem;color:#1565c0">${sB} sig / ${tdB}TD</span>
-                </div>
-                <div style="display:flex;height:5px;border-radius:3px;overflow:hidden">
-                  <div style="width:${pctA}%;background:#e53935;transition:width .3s"></div>
-                  <div style="width:${pctB}%;background:#1565c0;transition:width .3s"></div>
-                </div></div>`;
-            })()}
-          </div>
-
-          <!-- Fighters mini-header -->
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 0;gap:8px">
-            <div style="flex:1;display:flex;align-items:center;gap:8px">
-              ${avatarHtml(fA,40)}
-              <div>
-                <div style="font-weight:700;font-size:.82rem">${fName(fA)}</div>
-                <div style="font-size:.68rem;color:#888">${fA.record.wins}-${fA.record.losses} · <span style="color:#ef5350">${fA.record.koWins||0}KO</span> <span style="color:#ce93d8">${fA.record.subWins||0}Sub</span></div>
-              </div>
-            </div>
-            <div style="font-size:1rem;font-weight:900;color:#333">VS</div>
-            <div style="flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px">
-              <div style="text-align:right">
-                <div style="font-weight:700;font-size:.82rem">${fName(fB)}</div>
-                <div style="font-size:.68rem;color:#888">${fB.record.wins}-${fB.record.losses} · <span style="color:#ef5350">${fB.record.koWins||0}KO</span> <span style="color:#ce93d8">${fB.record.subWins||0}Sub</span></div>
-              </div>
-              ${avatarHtml(fB,40)}
-            </div>
-          </div>
+      <div class="fv-modal-bg" id="modalBg">
+        <div class="fv-modal">
+          ${fvHeaderHtml}
 
           <!-- Narrativa del asalto -->
           <div style="padding:12px 14px 0">
-            <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:1px;color:#444;margin-bottom:6px">Asalto ${roundIdx+1} de ${result.totalRounds||3}</div>
-            ${(()=>{
-              // Stats acumuladas hasta el asalto actual (datos reales del motor)
-              const rds=result.roundDetails||[];
-              let cumSigA=0,cumSigB=0,cumTdA=0,cumTdB=0,cumSubA=0,cumSubB=0,cumKdA=0,cumKdB=0,cumCtrlA=0,cumCtrlB=0;
-              for(let ri=0;ri<=roundIdx&&ri<rds.length;ri++){
-                const rd=rds[ri];
-                cumSigA+=(rd.statsA?.sigL||0);  cumSigB+=(rd.statsB?.sigL||0);
-                cumTdA+=(rd.statsA?.tdL||0);    cumTdB+=(rd.statsB?.tdL||0);
-                cumSubA+=(rd.statsA?.subAtt||0);cumSubB+=(rd.statsB?.subAtt||0);
-                cumKdA+=(rd.statsA?.kd||0);     cumKdB+=(rd.statsB?.kd||0);
-                cumCtrlA+=(rd.statsA?.ctrl||0); cumCtrlB+=(rd.statsB?.ctrl||0);
-              }
-              // Salud de este asalto
-              const curRd=rds[roundIdx]||{};
-              const hA=curRd.hA||{head:100,body:100,legs:100};
-              const hB=curRd.hB||{head:100,body:100,legs:100};
-              const hBar=(v,col)=>`<div style="height:5px;border-radius:2px;background:#1a1a1a;overflow:hidden"><div style="width:${Math.round(v)}%;height:100%;background:${col};transition:width .3s"></div></div>`;
-              const maxS=Math.max(cumSigA,cumSigB,1);
-              return '<div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:.7rem">'+
-                '<div style="display:grid;grid-template-columns:1fr 76px 1fr;gap:3px;align-items:center;margin-bottom:8px">'+
-                '<div style="color:#e53935;font-weight:700;text-align:right">'+cumSigA+'</div>'+
-                '<div style="text-align:center;color:#444;font-size:.62rem">Sig. Strikes</div>'+
-                '<div style="color:#1565c0;font-weight:700">'+cumSigB+'</div>'+
-                '<div style="color:#e53935;font-weight:700;text-align:right">'+cumTdA+'</div>'+
-                '<div style="text-align:center;color:#444;font-size:.62rem">Derribos</div>'+
-                '<div style="color:#1565c0;font-weight:700">'+cumTdB+'</div>'+
-                '<div style="color:#e53935;font-weight:700;text-align:right">'+cumSubA+'</div>'+
-                '<div style="text-align:center;color:#444;font-size:.62rem">Sub att.</div>'+
-                '<div style="color:#1565c0;font-weight:700">'+cumSubB+'</div>'+
-                '<div style="color:#e53935;font-weight:700;text-align:right">'+cumKdA+'</div>'+
-                '<div style="text-align:center;color:#444;font-size:.62rem">KDs</div>'+
-                '<div style="color:#1565c0;font-weight:700">'+cumKdB+'</div>'+
-                '</div>'+
-                (()=>{
-                  // Barra superior: actividad total (strikes + KDs + TDs + sub) = misma lógica que jueces
-                  const totActA = cumSigA + cumKdA*6 + cumTdA*4 + cumSubA*2;
-                  const totActB = cumSigB + cumKdB*6 + cumTdB*4 + cumSubB*2;
-                  const totAct = totActA + totActB || 1;
-                  const pActA = Math.round(totActA/totAct*100);
-                  // Barra inferior: dominio grappling (TDs + ctrl + subs) — solo si hubo grappling
-                  const grappA = cumTdA*5 + cumSubA*2 + Math.round(cumCtrlA/20);
-                  const grappB = cumTdB*5 + cumSubB*2 + Math.round(cumCtrlB/20);
-                  const hasGrappling = grappA+grappB > 0;
-                  const pGrappA = Math.round(grappA/(grappA+grappB||1)*100);
-                  return `<div style="margin-bottom:6px">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-                      <span style="font-size:.55rem;color:#e53935">${cumSigA}sig ${cumKdA>0?cumKdA+'KD ':''}</span>
-                      <span style="font-size:.54rem;color:#555">Actividad</span>
-                      <span style="font-size:.55rem;color:#1565c0">${cumSigB}sig ${cumKdB>0?cumKdB+'KD ':''}</span>
-                    </div>
-                    <div style="display:flex;height:5px;border-radius:3px;overflow:hidden;margin-bottom:${hasGrappling?'6':'0'}px">
-                      <div style="width:${pActA}%;background:#e53935;transition:width .3s"></div>
-                      <div style="width:${100-pActA}%;background:#1565c0;transition:width .3s"></div>
-                    </div>
-                    ${hasGrappling?`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
-                      <span style="font-size:.55rem;color:#e57373">${cumTdA}TD ${cumCtrlA>0?Math.round(cumCtrlA/60*10)/10+'min ':''}</span>
-                      <span style="font-size:.54rem;color:#555">Grappling</span>
-                      <span style="font-size:.55rem;color:#82b1ff">${cumTdB}TD ${cumCtrlB>0?Math.round(cumCtrlB/60*10)/10+'min ':''}</span>
-                    </div>
-                    <div style="display:flex;height:5px;border-radius:3px;overflow:hidden">
-                      <div style="width:${pGrappA}%;background:#e57373;transition:width .3s"></div>
-                      <div style="width:${100-pGrappA}%;background:#82b1ff;transition:width .3s"></div>
-                    </div>`:''}
-                  </div>`;
-                })()+
-                '<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:4px;font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">'+
-                '<span>'+fA.name.split(' ').pop()+'</span><span>Salud corporal</span><span style="text-align:right">'+fB.name.split(' ').pop()+'</span>'+
-                '</div>'+
-                '<div style="display:grid;grid-template-columns:1fr 50px 1fr;gap:3px;align-items:center">'+
-                hBar(hA.head,'#ef5350')+'<div style="text-align:center;color:#444;font-size:.6rem">Cabeza</div>'+hBar(hB.head,'#ef5350')+
-                hBar(hA.body,'#ff9800')+'<div style="text-align:center;color:#444;font-size:.6rem">Cuerpo</div>'+hBar(hB.body,'#ff9800')+
-                hBar(hA.legs,'#66bb6a')+'<div style="text-align:center;color:#444;font-size:.6rem">Piernas</div>'+hBar(hB.legs,'#66bb6a')+
-                '</div></div>';
-            })()}
+            <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--txt3);margin-bottom:6px">Resumen — Asalto ${roundIdx+1} de ${result.totalRounds||3}</div>
+            ${fvStatPanel(sumCumA, sumCumB, sumHA, sumHB, fA, fB)}
             ${(()=>{
               // Incidentes en este asalto
               const inc=fightLiveStats[fightIdx].incidents.filter(i=>i.round===roundIdx+1);
               return inc.map(i=>`<div style="background:rgba(255,160,0,.1);border:1px solid rgba(255,160,0,.3);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:.78rem;color:#ffb74d">${i.desc}</div>`).join('');
             })()}
-            <div style="background:#0d0d0d;border:1px solid #1e1e1e;border-radius:8px;padding:14px;min-height:100px">
-              ${normalLines.map((line,i)=>`<p style="margin:0 0 10px;font-size:.88rem;line-height:1.6;color:${i===0?'#ddd':'#aaa'}">${line}</p>`).join('')}
-              ${finishLine?`<p style="margin:10px 0 0;font-size:1rem;font-weight:700;line-height:1.5;color:#fff;padding-top:10px;border-top:1px solid #2a2a2a">${finishLine}</p>`:''}
+            <div class="fv-narr">
+              ${normalLines.map((line,i)=>`<p style="margin:0 0 10px;font-size:.88rem;line-height:1.6;color:${i===0?'var(--txt)':'var(--txt2)'}">${line}</p>`).join('')}
+              ${finishLine?`<p style="margin:10px 0 0;font-size:1rem;font-weight:700;line-height:1.5;color:#fff;padding-top:10px;border-top:1px solid var(--line)">${finishLine}</p>`:''}
             </div>
 
             <!-- Finalización highlight -->
             ${isFinishRound?`
-            <div style="margin-top:10px;display:flex;align-items:center;gap:12px;padding:12px;background:${isKO?'rgba(229,57,53,.12)':'rgba(123,31,162,.12)'};border-radius:8px;border:1px solid ${isKO?'#c62828':'#6a1b9a'}">
+            <div style="margin-top:10px;display:flex;align-items:center;gap:12px;padding:12px;background:${isKO?'rgba(215,38,61,.12)':'rgba(206,147,216,.12)'};border-radius:8px;border:1px solid ${isKO?'var(--red2)':'var(--sub)'}">
               <div style="font-size:2.5rem">${isKO?'💥':'🤼'}</div>
               <div>
-                <div style="font-size:1.1rem;font-weight:900;color:${methodColor}">${methodLabel(result).toUpperCase()}</div>
-                <div style="font-size:.82rem;color:#aaa">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
-                <div style="font-size:.78rem;color:#888;margin-top:2px">Ganador: <b style="color:#d4af37">${fName(result.winner)}</b></div>
+                <div style="font-size:1.1rem;font-weight:900;color:${resultMethodColor}">${methodLabel(result).toUpperCase()}</div>
+                <div style="font-size:.82rem;color:var(--txt2)">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
+                <div style="font-size:.78rem;color:var(--txt2);margin-top:2px">Ganador: <b style="color:var(--gold)">${fName(result.winner)}</b></div>
               </div>
             </div>`:''}
           </div>
@@ -3562,7 +3663,6 @@ function openLiveFightViewer(ev){
           <div style="padding:12px 14px 14px;display:flex;gap:8px;margin-top:4px">
             ${roundIdx>0?`<button class="btn small" id="fvPrev" style="min-width:60px">←</button>`:''}
             <button class="btn primary full" id="fvNext" style="padding:12px;font-weight:700">${isLastRound?'Ver resultado →':`Ronda ${roundIdx+2} →`}</button>
-            ${fightIdx>0||roundIdx>0?'':''  /* spacer */}
           </div>
           <div style="text-align:center;padding:0 14px 12px">
             <button class="btn small" id="fvSkipRest" style="color:var(--muted);font-size:.72rem">⏩ Simular resto rápido</button>
@@ -3570,11 +3670,11 @@ function openLiveFightViewer(ev){
         </div>
       </div>`;
       document.getElementById('fvNext').onclick=()=>{
-        if(roundIdx<narrative.length-1){ roundIdx++; renderFightViewer(); }
+        if(roundIdx<narrative.length-1){ roundIdx++; tickerMode='ticker'; tickerIdx=0; tickerPlaying=true; renderFightViewer(); }
         else { phase='result'; renderFightViewer(); }
       };
       if(document.getElementById('fvPrev')) document.getElementById('fvPrev').onclick=()=>{
-        if(roundIdx>0){roundIdx--;renderFightViewer();}
+        if(roundIdx>0){roundIdx--;tickerMode='summary';renderFightViewer();}
         else{phase='prefight';renderFightViewer();}
       };
       document.getElementById('fvSkipRest').onclick=skipAllRemaining;
@@ -3583,20 +3683,20 @@ function openLiveFightViewer(ev){
       // PANTALLA RESULTADO FINAL
       const champChange = fight.titleId && result.winner.id !== (STATE.titles.find(t=>t.id===fight.titleId)||{}).holderId;
       document.getElementById('modalRoot').innerHTML=`
-      <div class="modal-bg" id="modalBg" style="align-items:flex-start;padding-top:12px;background:rgba(0,0,0,.95)">
-        <div class="modal" style="max-width:480px;background:#111;border:1px solid #333;padding:0;overflow-y:auto;max-height:92vh">
-          <div style="background:#1a1a1a;padding:10px 14px;text-align:center">
+      <div class="fv-modal-bg" id="modalBg">
+        <div class="fv-modal">
+          <div style="background:var(--bg3);padding:10px 14px;text-align:center">
             <span class="muted" style="font-size:.75rem">${fName(ev)} · Combate ${fightIdx+1}/${totalFights}</span>
-            ${title?`<div style="font-size:.8rem;margin-top:2px;color:#d4af37">${titleIcon(title)} ${fName(title)}${fight.isInterim?' (Interino)':''}</div>`:''}
+            ${title?`<div style="font-size:.8rem;margin-top:2px;color:var(--gold)">${titleIcon(title)} ${fName(title)}${fight.isInterim?' (Interino)':''}</div>`:''}
           </div>
           <div style="padding:20px 14px;text-align:center">
             <div style="display:flex;align-items:center;justify-content:space-around;margin-bottom:16px">
               <div style="text-align:center">
                 ${avatarHtml(w, 88)}
-                <div style="font-weight:800;margin-top:6px;font-size:.95rem;color:#d4af37">🏆 ${fName(w)}</div>
+                <div style="font-weight:800;margin-top:6px;font-size:.95rem;color:var(--gold)">🏆 ${fName(w)}</div>
                 <div class="muted" style="font-size:.72rem">${w.record.wins}-${w.record.losses}</div>
               </div>
-              <div style="text-align:center;color:#555;font-size:1.8rem;margin:0 6px">⟶</div>
+              <div style="text-align:center;color:var(--txt3);font-size:1.8rem;margin:0 6px">⟶</div>
               <div style="text-align:center;opacity:.4">
                 ${avatarHtml(l, 70, true)}
                 <div style="margin-top:6px;font-size:.85rem">${fName(l)}</div>
@@ -3605,56 +3705,56 @@ function openLiveFightViewer(ev){
             </div>
             <div style="background:var(--bg3);border-radius:10px;padding:14px;margin:0 0 14px">
               <div style="font-size:2.5rem">${isKO?'💥':isSub?'🤼':'📋'}</div>
-              <div style="font-size:1.4rem;font-weight:900;color:${isKO?'#ef5350':isSub?'#ce93d8':'#90caf9'};margin:4px 0">${result.method}</div>
-              <div style="font-size:.9rem;color:#aaa">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
+              <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${result.method}</div>
+              <div style="font-size:.9rem;color:var(--txt2)">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
             </div>
-            ${champChange?`<div style="background:rgba(212,175,55,.15);border:1px solid #d4af37;border-radius:8px;padding:10px;margin-bottom:12px;color:#d4af37;font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
-            ${result.performance?`<div style="color:#d4af37;font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
+            ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
+            ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
             ${(()=>{
               const jc=fightLiveStats[fightIdx].judgeCards;
               if(!jc) return '';
               const winsA=jc.filter(j=>j.sA>j.sB).length;
               const decType=winsA===3?'Decisión unánime':winsA===2?'Decisión mayoritaria':winsA===1?'Decisión dividida':'Empate';
-              return `<div style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;padding:10px;margin-bottom:10px">
-                <div style="font-size:.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📋 Tarjetas de los jueces</div>
+              return `<div class="fv-panel">
+                <div style="font-size:.65rem;color:var(--txt2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📋 Tarjetas de los jueces</div>
                 <div style="display:grid;grid-template-columns:1fr 60px 60px;gap:2px;font-size:.78rem;margin-bottom:4px">
-                  <div style="color:#444;font-size:.65rem">Juez</div>
-                  <div style="text-align:center;color:#e53935;font-size:.65rem">${fA.name.split(' ').pop()}</div>
-                  <div style="text-align:center;color:#1565c0;font-size:.65rem">${fB.name.split(' ').pop()}</div>
+                  <div style="color:var(--txt3);font-size:.65rem">Juez</div>
+                  <div style="text-align:center;color:var(--red);font-size:.65rem">${fA.name.split(' ').pop()}</div>
+                  <div style="text-align:center;color:var(--blue);font-size:.65rem">${fB.name.split(' ').pop()}</div>
                   ${jc.map(j=>{
                     const aWins=j.sA>j.sB;
-                    return `<div style="color:#666">Juez ${j.j}</div>
-                      <div style="text-align:center;font-weight:700;color:${aWins?'#e53935':'#555'}">${j.sA}</div>
-                      <div style="text-align:center;font-weight:700;color:${!aWins?'#1565c0':'#555'}">${j.sB}</div>`;
+                    return `<div style="color:var(--txt3)">Juez ${j.j}</div>
+                      <div style="text-align:center;font-weight:700;color:${aWins?'var(--red)':'var(--txt3)'}">${j.sA}</div>
+                      <div style="text-align:center;font-weight:700;color:${!aWins?'var(--blue)':'var(--txt3)'}">${j.sB}</div>`;
                   }).join('')}
                 </div>
-                <div style="font-size:.7rem;color:#888;text-align:center;border-top:1px solid #1a1a1a;padding-top:6px">${decType}</div>
+                <div style="font-size:.7rem;color:var(--txt2);text-align:center;border-top:1px solid var(--line);padding-top:6px">${decType}</div>
               </div>`;
             })()}
             ${(()=>{
               const ls=fightLiveStats[fightIdx];
-              return `<div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:6px;padding:8px 10px;font-size:.72rem">
+              return `<div class="fv-panel">
                 <div style="display:grid;grid-template-columns:1fr 80px 1fr;gap:4px;align-items:center">
-                  <div style="color:#888;font-size:.65rem;text-align:right">${fA.name.split(' ').pop()}</div>
+                  <div style="color:var(--txt2);font-size:.65rem;text-align:right">${fA.name.split(' ').pop()}</div>
                   <div></div>
-                  <div style="color:#888;font-size:.65rem">${fB.name.split(' ').pop()}</div>
-                  <div style="color:#e53935;font-weight:700;text-align:right">${ls.strikesA}</div>
-                  <div style="text-align:center;color:#444">Golpes</div>
-                  <div style="color:#1565c0;font-weight:700">${ls.strikesB}</div>
-                  <div style="color:#e53935;font-weight:700;text-align:right">${ls.tdA}</div>
-                  <div style="text-align:center;color:#444">Derribos</div>
-                  <div style="color:#1565c0;font-weight:700">${ls.tdB}</div>
-                  <div style="color:#e53935;font-weight:700;text-align:right">${ls.subAttA}</div>
-                  <div style="text-align:center;color:#444">Sub att.</div>
-                  <div style="color:#1565c0;font-weight:700">${ls.subAttB}</div>
+                  <div style="color:var(--txt2);font-size:.65rem">${fB.name.split(' ').pop()}</div>
+                  <div style="color:var(--red);font-weight:700;text-align:right">${ls.strikesA}</div>
+                  <div style="text-align:center;color:var(--txt3)">Golpes</div>
+                  <div style="color:var(--blue);font-weight:700">${ls.strikesB}</div>
+                  <div style="color:var(--red);font-weight:700;text-align:right">${ls.tdA}</div>
+                  <div style="text-align:center;color:var(--txt3)">Derribos</div>
+                  <div style="color:var(--blue);font-weight:700">${ls.tdB}</div>
+                  <div style="color:var(--red);font-weight:700;text-align:right">${ls.subAttA}</div>
+                  <div style="text-align:center;color:var(--txt3)">Sub att.</div>
+                  <div style="color:var(--blue);font-weight:700">${ls.subAttB}</div>
                   ${(ls.kdA||ls.kdB)?`
-                  <div style="color:#e53935;font-weight:700;text-align:right">${ls.kdA}</div>
-                  <div style="text-align:center;color:#444">Knockdowns</div>
-                  <div style="color:#1565c0;font-weight:700">${ls.kdB}</div>`:''}
+                  <div style="color:var(--red);font-weight:700;text-align:right">${ls.kdA}</div>
+                  <div style="text-align:center;color:var(--txt3)">Knockdowns</div>
+                  <div style="color:var(--blue);font-weight:700">${ls.kdB}</div>`:''}
                   ${(ls.ctrlA||ls.ctrlB)?`
-                  <div style="color:#e53935;font-weight:700;text-align:right">${Math.floor((ls.ctrlA||0)/60)}:${String(Math.round((ls.ctrlA||0)%60)).padStart(2,'0')}</div>
-                  <div style="text-align:center;color:#444">Control</div>
-                  <div style="color:#1565c0;font-weight:700">${Math.floor((ls.ctrlB||0)/60)}:${String(Math.round((ls.ctrlB||0)%60)).padStart(2,'0')}</div>`:''}
+                  <div style="color:var(--red);font-weight:700;text-align:right">${Math.floor((ls.ctrlA||0)/60)}:${String(Math.round((ls.ctrlA||0)%60)).padStart(2,'0')}</div>
+                  <div style="text-align:center;color:var(--txt3)">Control</div>
+                  <div style="color:var(--blue);font-weight:700">${Math.floor((ls.ctrlB||0)/60)}:${String(Math.round((ls.ctrlB||0)%60)).padStart(2,'0')}</div>`:''}
                 </div>
               </div>`;
             })()}
@@ -3672,12 +3772,13 @@ function openLiveFightViewer(ev){
         if(fightIdx<results.length-1){ fightIdx++; phase='prefight'; roundIdx=0; renderFightViewer(); }
         else { applyAllAndFinish(); }
       };
-      if(document.getElementById('fvPrev')) document.getElementById('fvPrev').onclick=()=>{ phase='rounds'; roundIdx=narrative.length-1; renderFightViewer(); };
-      document.getElementById('fvCancel').onclick=()=>{ if(confirm('¿Cancelar sin guardar resultados?')) closeModal(); };
+      if(document.getElementById('fvPrev')) document.getElementById('fvPrev').onclick=()=>{ phase='rounds'; roundIdx=narrative.length-1; tickerMode='summary'; renderFightViewer(); };
+      document.getElementById('fvCancel').onclick=()=>{ if(confirm('¿Cancelar sin guardar resultados?')){ clearTicker(); closeModal(); } };
     }
   }
 
   function applyAllAndFinish(){
+    clearTicker();
     results.forEach(({fight, result})=>{
       fight.result = {
         winnerId:result.winner.id, loserId:result.loser.id,
