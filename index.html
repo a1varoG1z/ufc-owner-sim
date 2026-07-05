@@ -96,6 +96,27 @@
   @keyframes fvPulse{0%,100%{opacity:1}50%{opacity:.25}}
   @keyframes fvShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
   .fv-hit{animation:fvShake .35s}
+  /* Ring visual — representación esquemática (estilo Football Manager 2D), no física */
+  .fv-ring{position:relative;height:130px;margin:0 0 8px;border-radius:16px;
+    background:radial-gradient(ellipse at center, var(--bg3) 0%, var(--bg) 100%);border:2px solid var(--line);overflow:hidden}
+  .fv-ring::before{content:'';position:absolute;inset:10px;border:2px dashed rgba(255,255,255,.06);border-radius:50%}
+  .fv-token{position:absolute;width:42px;height:42px;margin:-21px 0 0 -21px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.85rem;color:#fff;
+    transition:left .35s ease,top .35s ease;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+  .fv-token.a{background:var(--red);border:2px solid var(--red2)}
+  .fv-token.b{background:var(--blue);border:2px solid #2d6ea8}
+  .fv-token-name{position:absolute;top:100%;left:50%;transform:translateX(-50%);font-size:.55rem;
+    color:var(--txt2);white-space:nowrap;margin-top:3px;font-weight:600}
+  .fv-token.throw{animation:fvThrow .35s ease}
+  .fv-token.impact{animation:fvImpact .4s ease}
+  .fv-token.down{animation:fvDown .5s ease forwards;filter:grayscale(.5)}
+  .fv-token.winglow{animation:fvGlowWin 1s ease-in-out infinite}
+  .fv-spark{position:absolute;transform:translate(-50%,-50%);font-size:1.5rem;animation:fvSparkPop .6s ease-out forwards;pointer-events:none}
+  @keyframes fvThrow{0%{transform:scale(1)}35%{transform:scale(1.28)}100%{transform:scale(1)}}
+  @keyframes fvImpact{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+  @keyframes fvDown{0%{transform:rotate(0) translateY(0);opacity:1}100%{transform:rotate(10deg) translateY(6px);opacity:.65}}
+  @keyframes fvGlowWin{0%,100%{box-shadow:0 0 0 0 rgba(227,179,65,.7)}50%{box-shadow:0 0 0 9px rgba(227,179,65,0)}}
+  @keyframes fvSparkPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.4)}30%{opacity:1;transform:translate(-50%,-50%) scale(1.3)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.7)}}
 </style>
 </head>
 <body>
@@ -3312,6 +3333,48 @@ function openLiveFightViewer(ev){
   const FV_POS_LABEL={standing:'🥊 De pie', clinch:'🤼 Clinch', ground_A_top:'🔒 Suelo', ground_B_top:'🔒 Suelo', back_A:'🔒 Espalda', back_B:'🔒 Espalda'};
   const FV_SPEEDS=[1700,1000,550];
   const FV_SPEED_LABELS=['Lento','Normal','Rápido'];
+  // Ring visual (prototipo "nivel 1"): representación esquemática, no física — dos fichas
+  // posicionadas según la posición del combate y animadas según los campos reales de `act`.
+  const FV_POS_LAYOUT={
+    standing:     {a:{l:30,t:58}, b:{l:70,t:58}},
+    clinch:       {a:{l:42,t:56}, b:{l:58,t:56}},
+    ground_A_top: {a:{l:50,t:34}, b:{l:50,t:76}},
+    ground_B_top: {a:{l:50,t:76}, b:{l:50,t:34}},
+    back_A:       {a:{l:58,t:40}, b:{l:42,t:66}},
+    back_B:       {a:{l:42,t:66}, b:{l:58,t:40}},
+  };
+  function fvActionIcon(act){
+    if(act.fin) return act.fin.m==='Sumisión'?'🔒':'💥';
+    if(act.kdA||act.kdB) return '💫';
+    if(act.type==='sub_attempt') return '🦾';
+    if(act.type==='gnp') return '🔨';
+    if(act.type==='takedown') return '🤼';
+    if(act.type==='clinch_entry'||act.type==='clinch') return '🤼';
+    if(act.type==='back_control') return '🔒';
+    if(act.type==='strike') return ['head_kick','body_kick','leg_kick','spinning'].includes(act.subtype)?'🦵':'👊';
+    return '';
+  }
+  function fvRingHtml(fA, fB, pos, act){
+    const layout = FV_POS_LAYOUT[pos]||FV_POS_LAYOUT.standing;
+    const aThrew=!!(act.sigA||act.tdAttA||act.subAttA), bThrew=!!(act.sigB||act.tdAttB||act.subAttB);
+    const aGotHit=act.dA>0, bGotHit=act.dB>0;
+    const aClasses=['fv-token','a'], bClasses=['fv-token','b'];
+    if(aThrew) aClasses.push('throw');
+    if(bThrew) bClasses.push('throw');
+    if(aGotHit) aClasses.push('impact');
+    if(bGotHit) bClasses.push('impact');
+    if(act.kdA) aClasses.push('down');
+    if(act.kdB) bClasses.push('down');
+    if(act.fin?.s==='A'){ aClasses.push('winglow'); bClasses.push('down'); }
+    if(act.fin?.s==='B'){ bClasses.push('winglow'); aClasses.push('down'); }
+    const icon=fvActionIcon(act);
+    const midL=(layout.a.l+layout.b.l)/2, midT=Math.min(layout.a.t,layout.b.t)-8;
+    return `<div class="fv-ring">
+      <div class="${aClasses.join(' ')}" style="left:${layout.a.l}%;top:${layout.a.t}%">${(fA.name||'?').charAt(0)}<span class="fv-token-name">${(fA.name||'').split(' ').pop()}</span></div>
+      <div class="${bClasses.join(' ')}" style="left:${layout.b.l}%;top:${layout.b.t}%">${(fB.name||'?').charAt(0)}<span class="fv-token-name">${(fB.name||'').split(' ').pop()}</span></div>
+      ${icon?`<div class="fv-spark" style="left:${midL}%;top:${midT}%">${icon}</div>`:''}
+    </div>`;
+  }
 
   // Usar los roundScores REALES devueltos por simulateFight — así el marcador del viewer
   // es exactamente consistente con el resultado final. Fin al bug de "va 2-0 pero pierde".
@@ -3570,9 +3633,11 @@ function openLiveFightViewer(ev){
         if(tickerIdx>acts.length-1) tickerIdx=acts.length-1;
         const act=acts[tickerIdx];
         const isFinAct = !!act.fin;
-        // Posición EN LA QUE OCURRE esta acción (antes de aplicar su propio npos, que es el resultado)
+        // Posición resultante tras esta acción (o la que venía arrastrando si no cambia) — se usa
+        // tanto para la etiqueta como para el ring, así ambos van siempre sincronizados.
         let _p='standing'; for(let k=0;k<tickerIdx;k++){ _p=acts[k].npos||_p; }
-        const posLabel = FV_POS_LABEL[_p]||'🥊 De pie';
+        const ringPos = act.npos || _p;
+        const posLabel = FV_POS_LABEL[ringPos]||'🥊 De pie';
         const prevLines = acts.slice(Math.max(0,tickerIdx-2), tickerIdx).map(a=>a.narr).filter(Boolean);
         const {cumA, cumB, hA, hB} = fvCumulative(fightIdx, roundIdx, tickerIdx);
 
@@ -3585,6 +3650,7 @@ function openLiveFightViewer(ev){
                 <span class="fv-live"><span class="fv-live-dot"></span> En vivo</span>
                 <span style="font-size:.65rem;color:var(--txt3)">${posLabel} · Acción ${tickerIdx+1}/${acts.length}</span>
               </div>
+              ${fvRingHtml(fA, fB, ringPos, act)}
               ${fvStatPanel(cumA, cumB, hA, hB, fA, fB)}
               <div class="fv-narr ${isFinAct?'fv-hit':''}" id="fvTapArea" style="cursor:pointer;${isFinAct?'border-color:var(--gold)':''}">
                 ${prevLines.map(l=>`<p style="margin:0 0 8px;font-size:.78rem;line-height:1.5;color:var(--txt3)">${l}</p>`).join('')}
