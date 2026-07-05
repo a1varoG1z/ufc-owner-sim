@@ -3360,13 +3360,17 @@ function openLiveFightViewer(ev){
   // Monigotes de palo (SVG, trazo=currentColor) — dibujados "mirando a la derecha";
   // la ficha B se refleja en horizontal por CSS para que mire hacia la ficha A.
   const FV_POSES={
-    idle:   {head:[17,9,6], torso:[17,16,17,38], armL:[17,20,9,29],  armR:[17,20,25,29], legL:[17,38,11,60], legR:[17,38,23,60]},
-    punch:  {head:[17,9,6], torso:[17,16,18,38], armL:[17,20,10,30], armR:[17,19,31,15], legL:[18,38,10,60], legR:[18,38,25,57]},
+    idle:   {head:[17,9,6], torso:[17,16,17,38], armL:[17,20,11,26], armR:[17,20,23,26], legL:[17,38,11,60], legR:[17,38,23,60]},
+    punch:  {head:[17,9,6], torso:[17,16,18,38], armL:[17,20,10,30], armR:[17,19,33,18], legL:[18,38,10,60], legR:[18,38,25,57]},
     kick:   {head:[17,9,6], torso:[17,16,15,38], armL:[17,20,9,30],  armR:[17,20,22,31], legL:[15,38,9,60],  legR:[15,38,30,26]},
     shoot:  {head:[19,13,6],torso:[19,19,25,36], armL:[25,36,32,44], armR:[25,36,33,36], legL:[25,36,16,60], legR:[25,36,28,58]},
-    clinch: {head:[17,9,6], torso:[17,16,18,38], armL:[17,20,27,24], armR:[17,20,27,31], legL:[18,38,11,60], legR:[18,38,22,59]},
+    clinch: {head:[17,9,6], torso:[17,16,18,38], armL:[17,20,28,18], armR:[17,20,25,33], legL:[18,38,11,59], legR:[18,38,21,58]},
     top:    {head:[22,14,6],torso:[22,20,27,40], armL:[27,40,32,28], armR:[27,40,31,46], legL:[27,40,16,50], legR:[27,40,22,55]},
     bottom: {head:[12,50,6],torso:[12,50,26,48], armL:[12,50,8,42],  armR:[12,50,16,40], legL:[26,48,32,42], legR:[26,48,30,54]},
+    hurt:   {head:[13,20,6],torso:[17,16,17,38], armL:[17,20,10,36], armR:[17,20,25,37], legL:[17,38,9,58],  legR:[17,38,22,60]},
+    limp:   {head:[19,14,6],torso:[18,19,22,42], armL:[18,22,5,38],  armR:[18,22,31,46], legL:[22,42,12,60], legR:[22,42,30,57]},
+    sub_top:{head:[24,16,6],torso:[24,22,28,40], armL:[28,40,19,33], armR:[28,40,33,30], legL:[28,40,18,50], legR:[28,40,24,54]},
+    sub_bottom:{head:[12,50,6],torso:[12,50,26,48], armL:[12,50,5,44], armR:[12,50,19,41], legL:[26,48,33,44], legR:[26,48,30,55]},
   };
   function fvFigureSvg(pose){
     const p=FV_POSES[pose]||FV_POSES.idle;
@@ -3374,13 +3378,17 @@ function openLiveFightViewer(ev){
     const line=s=>`<line x1="${s[0]}" y1="${s[1]}" x2="${s[2]}" y2="${s[3]}" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>`;
     return `<svg class="fv-fig" viewBox="0 0 34 64" width="34" height="64">${line(p.legL)}${line(p.legR)}${line(p.armL)}${line(p.armR)}${line(p.torso)}<circle cx="${hx}" cy="${hy}" r="${hr}" fill="currentColor"/></svg>`;
   }
-  // Elige la pose de cada peleador según la posición resultante y quién actuó en esta acción
-  function fvPoseFor(side, act, pos, aThrew, bThrew){
+  // Elige la pose de cada peleador según la posición resultante, quién actuó, y si esta acción
+  // le deja grogui (recibe golpe sin responder) o lo tumba (knockdown/finalización)
+  function fvPoseFor(side, act, pos, aThrew, bThrew, isDown, isHurt){
+    if(isDown) return 'limp';
+    if(isHurt) return 'hurt';
+    const isSub = act.type==='sub_attempt';
     if(pos==='clinch') return 'clinch';
-    if(pos==='ground_A_top') return side==='A'?'top':'bottom';
-    if(pos==='ground_B_top') return side==='B'?'top':'bottom';
-    if(pos==='back_A') return side==='A'?'top':'bottom';
-    if(pos==='back_B') return side==='B'?'top':'bottom';
+    if(pos==='ground_A_top') return side==='A'?(isSub?'sub_top':'top'):(isSub?'sub_bottom':'bottom');
+    if(pos==='ground_B_top') return side==='B'?(isSub?'sub_top':'top'):(isSub?'sub_bottom':'bottom');
+    if(pos==='back_A') return side==='A'?(isSub?'sub_top':'top'):(isSub?'sub_bottom':'bottom');
+    if(pos==='back_B') return side==='B'?(isSub?'sub_top':'top'):(isSub?'sub_bottom':'bottom');
     const threw = side==='A'?aThrew:bThrew;
     if(!threw) return 'idle';
     if(act.type==='takedown') return 'shoot';
@@ -3391,16 +3399,18 @@ function openLiveFightViewer(ev){
     const layout = FV_POS_LAYOUT[pos]||FV_POS_LAYOUT.standing;
     const aThrew=!!(act.sigA||act.tdAttA||act.subAttA), bThrew=!!(act.sigB||act.tdAttB||act.subAttB);
     const aGotHit=act.dA>0, bGotHit=act.dB>0;
+    const aIsDown=!!act.kdA||act.fin?.s==='B', bIsDown=!!act.kdB||act.fin?.s==='A';
+    const aIsHurt=aGotHit&&!aThrew&&!aIsDown, bIsHurt=bGotHit&&!bThrew&&!bIsDown;
     const aClasses=['fv-token','a'], bClasses=['fv-token','b'];
     if(aThrew) aClasses.push('throw');
     if(bThrew) bClasses.push('throw');
     if(aGotHit) aClasses.push('impact');
     if(bGotHit) bClasses.push('impact');
-    if(act.kdA) aClasses.push('down');
-    if(act.kdB) bClasses.push('down');
-    if(act.fin?.s==='A'){ aClasses.push('winglow'); bClasses.push('down'); }
-    if(act.fin?.s==='B'){ bClasses.push('winglow'); aClasses.push('down'); }
-    const poseA=fvPoseFor('A', act, pos, aThrew, bThrew), poseB=fvPoseFor('B', act, pos, aThrew, bThrew);
+    if(aIsDown) aClasses.push('down');
+    if(bIsDown) bClasses.push('down');
+    if(act.fin?.s==='A') aClasses.push('winglow');
+    if(act.fin?.s==='B') bClasses.push('winglow');
+    const poseA=fvPoseFor('A', act, pos, aThrew, bThrew, aIsDown, aIsHurt), poseB=fvPoseFor('B', act, pos, aThrew, bThrew, bIsDown, bIsHurt);
     const icon=fvActionIcon(act);
     const midL=(layout.a.l+layout.b.l)/2, midT=Math.min(layout.a.t,layout.b.t)-8;
     return `<div class="fv-ring">
