@@ -306,10 +306,25 @@ function starPayCurve(power){
 // que realmente cobra — ver el comentario en finishEvent). Reutilizado también por el creador
 // de eventos para mostrar una estimación de ingresos/beneficio antes de simular.
 function fairPurse(level, rep){ return starPayCurve(starPower(level, rep))*1.08; }
-function estimateFightRevenue(fairA, fairB, isTitle){
+// opts: {isTitle, isInterim, isMinorTitle, isContender, isRival} — el hype/estipulación del
+// combate también vende entradas y PPV, no solo la fama individual de cada peleador.
+function estimateFightRevenue(fairA, fairB, opts){
+  opts = opts||{};
   let rev=(fairA+fairB)*1.13+12000;
-  if(isTitle) rev*=1.25;
+  if(opts.isTitle) rev *= opts.isInterim ? 1.12 : opts.isMinorTitle ? 1.15 : 1.25;
+  if(opts.isContender) rev *= 1.08;
+  if(opts.isRival) rev *= 1.12;
   return rev;
+}
+function fightRevenueOpts(ft, a, b){
+  const title = ft.titleId ? STATE.titles.find(t=>t.id===ft.titleId) : null;
+  return {
+    isTitle: !!ft.titleId,
+    isInterim: !!ft.isInterim,
+    isMinorTitle: title?.kind==='minor',
+    isContender: !!ft.isContender,
+    isRival: (a && b) ? isRival(a.id, b.id) : false,
+  };
 }
 function makeContract(level, rep){
   const power = starPower(level, rep);
@@ -3311,7 +3326,7 @@ function tplEventBuilder(ev){
         if(!a||!b) return acc;
         acc.guaranteedPurse += (a.contract?.salary||0)+(b.contract?.salary||0);
         acc.maxBonus += Math.max(a.contract?.finishBonus||0, b.contract?.finishBonus||0);
-        acc.estRevenue += estimateFightRevenue(fairPurse(generalScore(a),a.reputation), fairPurse(generalScore(b),b.reputation), !!ft.titleId);
+        acc.estRevenue += estimateFightRevenue(fairPurse(generalScore(a),a.reputation), fairPurse(generalScore(b),b.reputation), fightRevenueOpts(ft,a,b));
         return acc;
       },{guaranteedPurse:0,maxBonus:0,estRevenue:0});
       const estNet = est.estRevenue - est.guaranteedPurse;
@@ -5240,7 +5255,7 @@ function finishEvent(ev){
     // bolsa por debajo de su valor, el margen mejora. Esto mantiene el negocio sano a cualquier
     // escala de estrellato sin blindar al jugador de sus propias decisiones de contratación.
     const fairA=fairPurse(generalScore(fA),fA.reputation), fairB=fairPurse(generalScore(fB),fB.reputation);
-    let fightRevenue=estimateFightRevenue(fairA,fairB,!!ft.titleId);
+    let fightRevenue=estimateFightRevenue(fairA,fairB,fightRevenueOpts(ft,fA,fB));
     if(r.isFOTN) fightRevenue*=1.15;
     eventRevenue+=Math.round(fightRevenue);
     [fA,fB].forEach(pf=>{
