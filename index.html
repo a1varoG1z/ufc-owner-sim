@@ -294,13 +294,29 @@ function starPower(level, rep){
   const fame = rep!=null ? rep : 50;
   return clamp(lvl*0.35 + fame*0.65, 0, 100);
 }
+// Curva de sueldo compartida (fichajes, negociación e ingresos de evento parten todos de aquí):
+// exponente alto para que solo el tramo top (fama+nivel casi al máximo, tipo un Conor McGregor)
+// se dispare muy por encima del resto — el grueso del roster apenas se mueve, pero una
+// superestrella real puede llegar a cobrar varias veces más que un top-10 normal.
+function starPayCurve(power){
+  const t = clamp(power,0,100)/100;
+  return 10000 + Math.pow(t,6.5)*2000000;
+}
+// Valor de mercado "justo" de un peleador para estimar ingresos de evento (independiente de lo
+// que realmente cobra — ver el comentario en finishEvent). Reutilizado también por el creador
+// de eventos para mostrar una estimación de ingresos/beneficio antes de simular.
+function fairPurse(level, rep){ return starPayCurve(starPower(level, rep))*1.08; }
+function estimateFightRevenue(fairA, fairB, isTitle){
+  let rev=(fairA+fairB)*1.13+12000;
+  if(isTitle) rev*=1.25;
+  return rev;
+}
 function makeContract(level, rep){
   const power = starPower(level, rep);
-  const t = power/100;
-  const base = 10000 + Math.pow(t,5)*1000000;
+  const base = starPayCurve(power);
   const noise = 1 + randi(-15,15)/100;
-  const salary = clamp(Math.round(base*noise/500)*500, 8000, 1200000);
-  const finishBonus = clamp(Math.round(salary*0.4/500)*500, 3000, 600000);
+  const salary = clamp(Math.round(base*noise/500)*500, 8000, 2500000);
+  const finishBonus = clamp(Math.round(salary*0.4/500)*500, 3000, 1000000);
   return {
     salary,
     finishBonus,                    // extra si gana por KO/Sumisión
@@ -1965,16 +1981,15 @@ function addFightToEvent(ev, fAId, fBId, titleId=null, isInterim=false, isMain=f
 
 /* ====================== LESIÓN DE ÚLTIMA HORA (PRE-EVENTO) ====================== */
 // Justo antes de simular/jugar un evento programado, cada peleador de la cartelera tiene
-// una pequeña probabilidad de lesionarse en el campamento y ser sustituido por otro peleador
-// disponible de su misma división antes de que arranque la simulación. Se excluye a los
-// campeones (indiscutidos/interinos) para no complicar la lógica de título — sólo se
-// lesionan/sustituyen retadores.
+// una pequeña probabilidad de lesionarse en el campamento. El jugador elige el sustituto
+// (mismo división, activo, no ya reservado en el evento); si no hay ninguno disponible,
+// el combate se cancela. Se excluye a los campeones (indiscutidos/interinos) para no
+// complicar la lógica de título — sólo se lesionan/sustituyen retadores.
 const PRE_EVENT_INJURY_PROB = 0.02;
-function applyPreEventInjuries(ev){
-  if(ev._injuriesChecked) return;
+function collectPreEventInjuries(ev){
+  if(ev._injuriesChecked) return [];
   ev._injuriesChecked = true;
-  const bookedIds = new Set();
-  ev.card.forEach(ft=>{ bookedIds.add(ft.fighterA); bookedIds.add(ft.fighterB); });
+  const queue=[];
   ev.card.forEach(fight=>{
     if(fight.result) return;
     ['fighterA','fighterB'].forEach(side=>{
@@ -1983,24 +1998,89 @@ function applyPreEventInjuries(ev){
       if(!hurt || hurt.status!=='active') return;
       if(STATE.titles.some(t=>t.holderId===hurtId||t.interimHolderId===hurtId)) return; // los campeones no se lesionan aquí
       if(Math.random()>=PRE_EVENT_INJURY_PROB) return;
-      const sub = STATE.fighters.filter(f=>f.status==='active' && f.division===hurt.division && f.id!==hurtId && !bookedIds.has(f.id))
-        .sort((a,b)=>Math.abs((a.rankScore||0)-(hurt.rankScore||0))-Math.abs((b.rankScore||0)-(hurt.rankScore||0)))[0];
-      if(!sub) return; // no hay sustituto disponible en la división
-      const days=randi(30,90);
-      hurt.injury={active:true, untilDate:addDays(ev.date,days), note:'Lesión de campamento (baja de última hora)', type:'general'};
-      hurt.status='injured';
-      bookedIds.delete(hurtId);
-      bookedIds.add(sub.id);
-      fight[side]=sub.id;
-      logEvent(`🚑 ${fName(hurt)} se retira de ${fName(ev)} por lesión de última hora — sustituido por ${fName(sub)}.`);
-      richToast(`🚑 Baja de última hora: ${fName(hurt)} se lesiona. ¡Entra ${fName(sub)}!`,'🚑','#ff7043',6000);
+      queue.push({fight, side, hurtId});
     });
   });
+  return queue;
+}
+// Pide confirmación al jugador antes de simular/jugar un evento: si hay lesiones de última
+// hora, muestra un modal por cada una para elegir sustituto (o cancelar el combate si no
+// hay ninguno disponible) antes de llamar a onDone().
+function runPreEventInjuryCheck(ev, onDone){
+  const queue = collectPreEventInjuries(ev);
+  if(!queue.length){ onDone(); return; }
+  const bookedIds = new Set();
+  ev.card.forEach(ft=>{ bookedIds.add(ft.fighterA); bookedIds.add(ft.fighterB); });
+
+  function processNext(i){
+    if(i>=queue.length){ saveLocal(); onDone(); return; }
+    const {fight, side, hurtId} = queue[i];
+    const hurt = STATE.fighters.find(x=>x.id===hurtId);
+    if(!hurt || hurt.status!=='active' || fight[side]!==hurtId || !ev.card.includes(fight)){ processNext(i+1); return; }
+    const oppId = fight[side==='fighterA'?'fighterB':'fighterA'];
+    const opp = STATE.fighters.find(x=>x.id===oppId);
+    const candidates = STATE.fighters.filter(f=>f.status==='active' && f.division===hurt.division && f.id!==hurtId && !bookedIds.has(f.id))
+      .sort((a,b)=>generalScore(b)-generalScore(a));
+    const days=randi(30,90);
+    const markInjured=()=>{ hurt.injury={active:true, untilDate:addDays(ev.date,days), note:'Lesión de campamento (baja de última hora)', type:'general'}; hurt.status='injured'; };
+
+    if(!candidates.length){
+      document.getElementById('modalRoot').innerHTML=`
+      <div class="modal-bg" id="modalBg">
+        <div class="modal" style="text-align:center">
+          <h3>🚑 Lesión de última hora</h3>
+          <p>${fName(hurt)} se ha lesionado en el campamento antes de su combate vs ${fName(opp)}.</p>
+          <p class="muted">No hay ningún peleador disponible de ${divName(hurt.division)} para sustituirlo — el combate se cancela.</p>
+          <button class="btn primary full" id="injOk" style="margin-top:10px">Entendido</button>
+        </div>
+      </div>`;
+      document.getElementById('injOk').onclick=()=>{
+        markInjured();
+        const idx=ev.card.indexOf(fight); if(idx>=0) ev.card.splice(idx,1);
+        logEvent(`🚑 ${fName(hurt)} se lesiona antes de ${fName(ev)} y no hay sustituto disponible — el combate se cancela.`);
+        richToast(`🚑 ${fName(hurt)} se lesiona — sin sustituto, combate cancelado`,'🚑','#ef5350',6000);
+        processNext(i+1);
+      };
+      return;
+    }
+
+    document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" id="modalBg">
+      <div class="modal">
+        <h3>🚑 Lesión de última hora</h3>
+        <p>${fName(hurt)} se ha lesionado en el campamento y no podrá pelear vs ${fName(opp)}. Elige su sustituto:</p>
+        <select id="injSubSel">${candidates.map(c=>`<option value="${c.id}">${fName(c)} (Nivel ${generalScore(c)} · ${c.record.wins}-${c.record.losses})</option>`).join('')}</select>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary full" id="injConfirm">Confirmar sustituto</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn danger full" id="injCancelFight">✕ Cancelar el combate</button>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('injConfirm').onclick=()=>{
+      const chosenId = document.getElementById('injSubSel').value;
+      const sub = STATE.fighters.find(x=>x.id===chosenId);
+      markInjured();
+      bookedIds.delete(hurtId); bookedIds.add(chosenId);
+      fight[side]=chosenId;
+      logEvent(`🚑 ${fName(hurt)} se retira de ${fName(ev)} por lesión de última hora — sustituido por ${fName(sub)}.`);
+      richToast(`🚑 Baja de última hora: ${fName(hurt)} se lesiona. ¡Entra ${fName(sub)}!`,'🚑','#ff7043',6000);
+      processNext(i+1);
+    };
+    document.getElementById('injCancelFight').onclick=()=>{
+      markInjured();
+      const idx=ev.card.indexOf(fight); if(idx>=0) ev.card.splice(idx,1);
+      logEvent(`🚑 ${fName(hurt)} se lesiona antes de ${fName(ev)} — combate cancelado.`);
+      richToast(`🚑 Combate cancelado: ${fName(hurt)} se lesiona`,'🚑','#ef5350',6000);
+      processNext(i+1);
+    };
+  }
+  processNext(0);
 }
 
 function simulateEvent(ev){
   if(ev.status==='completed') return;
-  applyPreEventInjuries(ev);
   ev.card.forEach(fight=>{
     const fA = STATE.fighters.find(x=>x.id===fight.fighterA);
     const fB = STATE.fighters.find(x=>x.id===fight.fighterB);
@@ -2464,11 +2544,96 @@ function tplPromotions(){
         <div class="section-title"><b>${rev.name}</b><span class="muted" style="font-size:.7rem">${fmtDate(rev.date)}</span></div>
         ${rev.fights.map(ft=>`<div style="font-size:.72rem;padding:2px 0">${ft.aName} vs ${ft.bName} — <b>${ft.winnerName}</b> (${ft.method} R${ft.round})${ft.titleFight?' 🏆':''}</div>`).join('')}
       </div>`).join('')}
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:.8rem;color:#888">👥 Ver roster completo (${rp.fighters.length}) — comprar derechos de un peleador</summary>
+      <table style="margin-top:6px"><thead><tr><th>Nombre</th><th>Div.</th><th>Récord</th><th>Nivel</th><th></th></tr></thead><tbody>
+      ${rp.fighters.slice().sort((a,b)=>generalScore(b)-generalScore(a)).map(rf=>{
+        const isChamp=rp.titles.some(t=>t.holderId===rf.id);
+        const cost=rivalSigningCost(rf,isChamp);
+        return `<tr>
+          <td class="clickable" data-rivalfighter="${rf.id}" data-rivalpromo="${rp.id}" style="cursor:pointer">${rf.name}${isChamp?' 🏆':''}</td>
+          <td style="font-size:.7rem">${divName(rf.division)}</td>
+          <td style="font-size:.72rem">${rf.record?.wins||0}-${rf.record?.losses||0}</td>
+          <td style="font-size:.72rem">${generalScore(rf)}</td>
+          <td><button class="btn small buyRivalFighterBtn" data-rivalfighter="${rf.id}" data-rivalpromo="${rp.id}" style="font-size:.65rem;white-space:nowrap">💰 $${cost.toLocaleString()}</button></td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>
+    </details>
   </div>`).join('')}
   `;
 }
+// Coste de comprar los derechos de un peleador de una promotora rival — sube con su nivel,
+// su récord (más victorias = más caro) y si es campeón de su división en esa promotora.
+function rivalSigningCost(rf, isChamp){
+  const level = generalScore(rf);
+  const wins = rf.record?.wins||0, losses = rf.record?.losses||0;
+  let cost = 15000 + level*1100 + wins*4000 - losses*1200;
+  if(isChamp) cost *= 1.8;
+  return clamp(Math.round(cost/1000)*1000, 15000, 700000);
+}
 function bindPromotions(){
-  // La gestión (crear/editar/mover peleadores) vive en el Editor — esta pestaña es solo de consulta.
+  document.querySelectorAll('[data-rivalfighter].clickable').forEach(el=>{
+    el.onclick=e=>{
+      e.stopPropagation();
+      const rp=STATE.rivalPromotions.find(x=>x.id===el.dataset.rivalpromo);
+      const rf=rp?.fighters.find(x=>x.id===el.dataset.rivalfighter);
+      if(rf) openRivalFighterProfile(rf, rp);
+    };
+  });
+  document.querySelectorAll('.buyRivalFighterBtn').forEach(btn=>{
+    btn.onclick=e=>{
+      e.stopPropagation();
+      const rp=STATE.rivalPromotions.find(x=>x.id===btn.dataset.rivalpromo);
+      const rf=rp?.fighters.find(x=>x.id===btn.dataset.rivalfighter);
+      if(!rp||!rf) return;
+      buyRivalFighter(rp, rf);
+    };
+  });
+}
+// Perfil simplificado de un peleador rival (no tiene todo el historial de un peleador propio)
+function openRivalFighterProfile(rf, rp){
+  const isChamp=rp.titles.some(t=>t.holderId===rf.id);
+  const cost=rivalSigningCost(rf,isChamp);
+  const age=ageFromDob(rf.dob, STATE.meta.currentDate);
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" style="max-width:420px">
+      <div class="section-title"><h3>${rf.name}${isChamp?' 🏆':''}</h3><button class="btn small closebtn" id="rfClose">✕</button></div>
+      <p class="muted">${rp.name} · ${divName(rf.division)} · ${age} años</p>
+      <p>Récord: <b>${rf.record?.wins||0}-${rf.record?.losses||0}</b> · Nivel general: <b>${generalScore(rf)}</b> · Estilo: ${FIGHT_STYLES[rf.fightStyle]?.label||rf.fightStyle}</p>
+      <div class="grid2" style="font-size:.78rem;margin:8px 0">
+        ${STAT_KEYS.map(([k,label])=>`<div>${label}: <b>${rf.stats[k]}</b></div>`).join('')}
+      </div>
+      ${isChamp?`<p style="color:#d4af37;font-size:.8rem">🏆 Campeón de ${divName(rf.division)} en ${rp.name}</p>`:''}
+      <button class="btn primary full buyRivalFighterModalBtn" style="margin-top:10px">💰 Comprar derechos — $${cost.toLocaleString()}</button>
+    </div>
+  </div>`;
+  document.getElementById('rfClose').onclick=closeModal;
+  document.querySelector('.buyRivalFighterModalBtn').onclick=()=>{ closeModal(); buyRivalFighter(rp, rf); };
+}
+function buyRivalFighter(rp, rf){
+  const isChamp=rp.titles.some(t=>t.holderId===rf.id);
+  const cost=rivalSigningCost(rf,isChamp);
+  if((STATE.meta.budget||0)<cost){ toast(`❌ Presupuesto insuficiente (necesitas $${cost.toLocaleString()})`); return; }
+  if(!confirm(`¿Pagar $${cost.toLocaleString()} por los derechos de ${rf.name} (${rp.name})?`)) return;
+  STATE.meta.budget -= cost;
+  rp.fighters = rp.fighters.filter(x=>x.id!==rf.id);
+  if(isChamp){
+    const t=rp.titles.find(x=>x.holderId===rf.id);
+    if(t){ t.holderId=null; t.holderName=null; }
+  }
+  STATE.fighters.push({
+    id: rf.id, name: rf.name, nickname:'', gender:'M', country:'', dob:rf.dob, debut:STATE.meta.currentDate,
+    division: rf.division, stats:{...rf.stats}, longevity: rf.longevity||80, status:'active',
+    injury:{active:false,untilDate:null,note:''},
+    record:{wins:rf.record?.wins||0,losses:rf.record?.losses||0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0,ufcFights:0,ufcWins:0,ufcLosses:0,ufcKoWins:0,ufcSubWins:0,ufcDecWins:0,ufcKoLosses:0,ufcSubLosses:0,ufcDecLosses:0},
+    imageUrl:null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
+    fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation: isChamp?70:50,
+    contract: makeContract(generalScore(rf), isChamp?70:50),
+  });
+  logEvent(`💰 ${rf.name} ficha por tu promotora tras pagar $${cost.toLocaleString()} a ${rp.name}.`);
+  saveLocal(); render(); toast(`${rf.name} fichado ✅ (-$${cost.toLocaleString()})`);
 }
 
 /* ====================== FINANZAS ====================== */
@@ -3139,6 +3304,26 @@ function tplEventBuilder(ev){
         </div>`;
       }).join('') || '<p class="muted">Cartelera vacía.</p>'}
     </div>
+    ${(()=>{
+      if(!ev.card.length) return '';
+      const est = ev.card.reduce((acc,ft)=>{
+        const a=STATE.fighters.find(x=>x.id===ft.fighterA), b=STATE.fighters.find(x=>x.id===ft.fighterB);
+        if(!a||!b) return acc;
+        acc.guaranteedPurse += (a.contract?.salary||0)+(b.contract?.salary||0);
+        acc.maxBonus += Math.max(a.contract?.finishBonus||0, b.contract?.finishBonus||0);
+        acc.estRevenue += estimateFightRevenue(fairPurse(generalScore(a),a.reputation), fairPurse(generalScore(b),b.reputation), !!ft.titleId);
+        return acc;
+      },{guaranteedPurse:0,maxBonus:0,estRevenue:0});
+      const estNet = est.estRevenue - est.guaranteedPurse;
+      return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-top:8px;font-size:.78rem">
+        <div style="font-size:.65rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💰 Estimación económica del evento</div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Bolsas garantizadas</span><b>$${Math.round(est.guaranteedPurse).toLocaleString()}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">+ posibles bonos por finalización</span><span>hasta $${Math.round(est.maxBonus).toLocaleString()}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Ingresos estimados</span><b style="color:#69f0ae">$${Math.round(est.estRevenue).toLocaleString()}</b></div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0 0;margin-top:2px;border-top:1px solid var(--line)"><span class="muted">Beneficio estimado</span><b style="color:${estNet>=0?'#69f0ae':'#ef5350'}">${estNet>=0?'+':''}$${Math.round(estNet).toLocaleString()}</b></div>
+        <p class="muted" style="font-size:.65rem;margin-top:4px">No incluye bonos de FOTN/Actuación ni lesiones de última hora — estimación previa a simular.</p>
+      </div>`;
+    })()}
     ${ev.card.length>0? `
     <div class="row">
       <button class="btn green full simulateBtn" data-ev="${ev.id}">⚡ Simular rápido</button>
@@ -3355,16 +3540,18 @@ function bindEvents(){
   document.querySelectorAll('.simulateBtn').forEach(btn=>{
     btn.onclick=()=>{
       const ev=STATE.events.find(x=>x.id===btn.dataset.ev);
-      simulateEvent(ev);
-      STATE.meta.currentDate = ev.date;
-      saveLocal(); render();
-      showEventSummaryAfterRender(ev);
+      runPreEventInjuryCheck(ev, ()=>{
+        simulateEvent(ev);
+        STATE.meta.currentDate = ev.date;
+        saveLocal(); render();
+        showEventSummaryAfterRender(ev);
+      });
     };
   });
   document.querySelectorAll('.simulateLiveBtn').forEach(btn=>{
     btn.onclick=()=>{
       const ev=STATE.events.find(x=>x.id===btn.dataset.ev);
-      openLiveFightViewer(ev);
+      runPreEventInjuryCheck(ev, ()=>{ openLiveFightViewer(ev); });
     };
   });
 }
@@ -3658,7 +3845,7 @@ function openContractNegotiation(fighterId){
     // Misma curva de estrellato que makeContract(), pero un peleador que ya ha demostrado su
     // valor en la UFC pide algo más que un fichaje nuevo, y una racha caliente sube la exigencia.
     const power = starPower(generalScore(f), rep);
-    let base = 10000 + Math.pow(power/100,5)*1150000;
+    let base = starPayCurve(power)*1.15;
     base *= (1 + mom*0.06);
     base *= (1 + (f.contract.demandLevel||50)/250);
     if(rivalOffer) base = Math.max(base, rivalOffer.amount*1.05);
@@ -3739,7 +3926,6 @@ function openContractNegotiation(fighterId){
 
 function openLiveFightViewer(ev){
   if(ev.status==='completed') return toast('Este evento ya está completado');
-  applyPreEventInjuries(ev);
   const results = [...ev.card].reverse().map(fight=>{
     const fA=STATE.fighters.find(x=>x.id===fight.fighterA);
     const fB=STATE.fighters.find(x=>x.id===fight.fighterB);
@@ -4132,10 +4318,13 @@ function openLiveFightViewer(ev){
               }).join('')}
             </div>
           </div>
+          <div style="padding:0 14px 8px;display:flex;gap:8px">
+            <button class="btn primary full" id="fvStartLive" style="padding:12px">▶ Ver en vivo</button>
+            <button class="btn primary full" id="fvStartSkip" style="padding:12px">⏭ Ir al resultado</button>
+          </div>
           <div style="padding:0 14px 16px;display:flex;gap:8px">
-            <button class="btn primary full" id="fvStart" style="padding:12px">▶ Comenzar combate</button>
-            ${fightIdx<totalFights-1?`<button class="btn small" id="fvSkipAll" style="white-space:nowrap">⏩ Simular resto rápido</button>
-            <button class="btn small" id="fvSimNext" style="white-space:nowrap;margin-left:4px">⏭ Siguiente pelea</button>`:''}
+            ${fightIdx<totalFights-1?`<button class="btn small full" id="fvSkipAll" style="white-space:nowrap">⏩ Simular resto rápido</button>
+            <button class="btn small full" id="fvSimNext" style="white-space:nowrap">⏭ Siguiente pelea</button>`:''}
           </div>
           ${(()=>{const prev=fightRematches[fightIdx]; if(!prev.length) return '';
             const last=prev[prev.length-1]; const won=last.winnerId===fA.id;
@@ -4150,7 +4339,8 @@ function openLiveFightViewer(ev){
           </div>
         </div>
       </div>`;
-      document.getElementById('fvStart').onclick=()=>{ phase='rounds'; roundIdx=0; tickerMode='ticker'; tickerIdx=0; tickerPlaying=true; renderFightViewer(); };
+      document.getElementById('fvStartLive').onclick=()=>{ phase='rounds'; roundIdx=0; tickerMode='ticker'; tickerIdx=0; tickerPlaying=true; renderFightViewer(); };
+      document.getElementById('fvStartSkip').onclick=()=>{ phase='rounds'; roundIdx=0; tickerMode='summary'; tickerIdx=0; tickerPlaying=false; renderFightViewer(); };
       if(document.getElementById('fvSkipAll')) document.getElementById('fvSkipAll').onclick=()=>{ skipAllRemaining(); };
       if(document.getElementById('fvSimNext')) document.getElementById('fvSimNext').onclick=()=>{
         // Solo avanzar — todos los resultados se aplican juntos al final por applyAllAndFinish
@@ -4328,17 +4518,22 @@ function openLiveFightViewer(ev){
           <!-- Botones -->
           <div style="padding:12px 14px 14px;display:flex;gap:8px;margin-top:4px">
             ${roundIdx>0?`<button class="btn small" id="fvPrev" style="min-width:60px">←</button>`:''}
-            <button class="btn primary full" id="fvNext" style="padding:12px;font-weight:700">${isLastRound?'Ver resultado →':`Ronda ${roundIdx+2} →`}</button>
+            ${isLastRound
+              ?`<button class="btn primary full" id="fvNext" style="padding:12px;font-weight:700">Ver resultado →</button>`
+              :`<button class="btn primary" id="fvNextLive" style="padding:12px;font-weight:700;flex:1">▶ Ronda ${roundIdx+2} en vivo</button>
+                <button class="btn primary" id="fvNextSkip" style="padding:12px;font-weight:700;flex:1">⏭ Ir al resultado</button>`}
           </div>
           <div style="text-align:center;padding:0 14px 12px">
             <button class="btn small" id="fvSkipRest" style="color:var(--muted);font-size:.72rem">⏩ Simular resto rápido</button>
           </div>
         </div>
       </div>`;
-      document.getElementById('fvNext').onclick=()=>{
-        if(roundIdx<narrative.length-1){ roundIdx++; tickerMode='ticker'; tickerIdx=0; tickerPlaying=true; renderFightViewer(); }
-        else { phase='result'; renderFightViewer(); }
-      };
+      if(isLastRound){
+        document.getElementById('fvNext').onclick=()=>{ phase='result'; renderFightViewer(); };
+      } else {
+        document.getElementById('fvNextLive').onclick=()=>{ roundIdx++; tickerMode='ticker'; tickerIdx=0; tickerPlaying=true; renderFightViewer(); };
+        document.getElementById('fvNextSkip').onclick=()=>{ roundIdx++; tickerMode='summary'; tickerIdx=0; tickerPlaying=false; renderFightViewer(); };
+      }
       if(document.getElementById('fvPrev')) document.getElementById('fvPrev').onclick=()=>{
         if(roundIdx>0){roundIdx--;tickerMode='summary';renderFightViewer();}
         else{phase='prefight';renderFightViewer();}
@@ -5039,13 +5234,13 @@ function finishEvent(ev){
     const r=ft.result; if(!r) return;
     const fA=STATE.fighters.find(x=>x.id===ft.fighterA), fB=STATE.fighters.find(x=>x.id===ft.fighterB);
     if(!fA||!fB) return;
-    // Los ingresos se atan directamente a las bolsas reales que se están pagando (con un margen
-    // sano encima), en vez de una curva de fama independiente — así el margen se mantiene estable
-    // sin importar lo cara que sea la estrella, y financia automáticamente contratos de superestrella.
-    const salaryA=fA.contract?.salary||0, salaryB=fB.contract?.salary||0;
-    const expectedBonus=0.2*(((fA.contract?.finishBonus||0)+(fB.contract?.finishBonus||0))/2);
-    let fightRevenue=(salaryA+salaryB+expectedBonus)*1.15+15000;
-    if(ft.titleId) fightRevenue*=1.35;
+    // Los ingresos se calculan por el valor de mercado "justo" del peleador (fama/nivel), NO por
+    // lo que realmente cobra — así, si el jugador le paga de más respecto a su tirón real, ese
+    // exceso sale directamente del margen (decisión mala = pierdes dinero), y si negocia una
+    // bolsa por debajo de su valor, el margen mejora. Esto mantiene el negocio sano a cualquier
+    // escala de estrellato sin blindar al jugador de sus propias decisiones de contratación.
+    const fairA=fairPurse(generalScore(fA),fA.reputation), fairB=fairPurse(generalScore(fB),fB.reputation);
+    let fightRevenue=estimateFightRevenue(fairA,fairB,!!ft.titleId);
     if(r.isFOTN) fightRevenue*=1.15;
     eventRevenue+=Math.round(fightRevenue);
     [fA,fB].forEach(pf=>{
@@ -5091,13 +5286,20 @@ function finishEvent(ev){
   // Las promotoras rivales avanzan un turno al mismo ritmo que tú
   advanceRivalPromotions(ev.date);
 
-  // Negociaciones olvidadas: si llevan 5+ eventos sin atender, se resuelven solas
-  // (el peleador renueva a sus términos actuales) para que la lista no crezca sin límite.
+  // Negociaciones olvidadas: si llevan 5+ eventos sin atender, se resuelven solas al valor de
+  // mercado actual del peleador (no a su tarifa antigua) — así ignorar la negociación no genera
+  // una ventaja económica pasiva por dejar a una estrella en ascenso con contrato de novato.
   (STATE.pendingNegotiations||[]).slice().forEach(n=>{
     if(STATE.meta.eventSeq-(n.eventSeqCreated||0)>=5){
       const pf=STATE.fighters.find(x=>x.id===n.fighterId);
       STATE.pendingNegotiations=STATE.pendingNegotiations.filter(x=>x!==n);
-      if(pf){ pf.contract.fightsLeft=3; logEvent(`📄 ${fName(pf)} renueva en silencio a sus términos actuales (nadie atendió la negociación).`); }
+      if(pf){
+        if(!pf.contractHistory) pf.contractHistory=[];
+        pf.contractHistory.push({salary:pf.contract.salary, finishBonus:pf.contract.finishBonus, fightsLeft:pf.contract.fightsLeft, signedDate:pf.contract.signedDate||null, endedDate:ev.date});
+        const fresh=makeContract(generalScore(pf), pf.reputation);
+        pf.contract.salary=fresh.salary; pf.contract.finishBonus=fresh.finishBonus; pf.contract.fightsLeft=3; pf.contract.signedDate=ev.date;
+        logEvent(`📄 ${fName(pf)} renueva en silencio a valor de mercado ($${fresh.salary.toLocaleString()}/pelea) — nadie atendió la negociación.`);
+      }
     }
   });
 
