@@ -54,8 +54,15 @@
   .tabs{display:flex;overflow-x:auto;gap:6px;padding:8px 10px;background:var(--bg2);border-bottom:1px solid var(--line);
     position:sticky;top:46px;z-index:19}
   .tabs::-webkit-scrollbar{display:none}
+  /* Degradado en los bordes — pista visual de que la barra sigue más allá de la pantalla */
+  .tabs::before,.tabs::after{content:'';position:absolute;top:0;bottom:0;width:20px;pointer-events:none;z-index:1}
+  .tabs::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
+  .tabs::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
   .tab{flex:0 0 auto;padding:7px 12px;border-radius:99px;background:var(--bg3);font-size:.78rem;white-space:nowrap;border:1px solid var(--line)}
   .tab.active{background:var(--red);border-color:var(--red2);color:#fff;font-weight:700}
+  /* Separador sutil entre grupos temáticos de pestañas */
+  .tab-group-start{margin-left:10px;position:relative}
+  .tab-group-start::before{content:'';position:absolute;left:-8px;top:1px;bottom:1px;width:1px;background:var(--line)}
   .statbar{height:6px;border-radius:99px;background:var(--bg3);overflow:hidden;margin-top:2px}
   .statbar i{display:block;height:100%;background:var(--blue)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -239,12 +246,22 @@ function freshState(){
     rivalPromotions: [],  // ligas rivales — ver seedRivalPromotions()
     pendingNegotiations: [], // [{fighterId, rivalOfferSalary}] avisos de contrato a renovar
     callouts: [], // [{id, callerId, targetId, divisionId, eventSeqIssued}] retos entre peleadores
+    budgetLedger: [], // [{date, amount, reason, balance}] historial de movimientos de presupuesto
+    playerPrestigeHistory: [], // [{date, prestige}] para la gráfica comparativa en Promotoras
   };
 }
 
 function logEvent(msg){
   STATE.log.unshift({date:STATE.meta.currentDate, msg});
   if(STATE.log.length>400) STATE.log.length=400;
+}
+// Registra un movimiento de presupuesto (evento, fichaje, ajuste manual...) para poder
+// reconstruir después una gráfica real de evolución del presupuesto — sumar solo `_finance.net`
+// de eventos se queda corto, porque fichajes y ajustes manuales también mueven el dinero.
+function recordBudgetTx(amount, reason, date){
+  if(!STATE.budgetLedger) STATE.budgetLedger=[];
+  STATE.budgetLedger.push({date:date||STATE.meta.currentDate, amount, reason, balance:STATE.meta.budget||0});
+  if(STATE.budgetLedger.length>500) STATE.budgetLedger.shift();
 }
 
 /* ====================== GENERACIÓN DE PELEADORES SEED ====================== */
@@ -325,6 +342,30 @@ function fightRevenueOpts(ft, a, b){
     isContender: !!ft.isContender,
     isRival: (a && b) ? isRival(a.id, b.id) : false,
   };
+}
+// Estimación de "compras PPV" — una métrica de cara al jugador, independiente de la economía
+// abstracta en dólares, para que el hype de un cartel se sienta como una cifra real de UFC
+// (100k de una cartelera floja, hasta millones para un evento estelar). Tira sobre todo del
+// combate principal (idx 0), con un pequeño extra por la profundidad del resto de la cartelera.
+function estimateEventBuys(ev){
+  if(!ev.card.length) return 0;
+  const main = ev.card[0];
+  const mA=STATE.fighters.find(x=>x.id===main.fighterA), mB=STATE.fighters.find(x=>x.id===main.fighterB);
+  if(!mA||!mB) return 0;
+  const mainPower=(starPower(generalScore(mA),mA.reputation)+starPower(generalScore(mB),mB.reputation))/2;
+  const t=mainPower/100;
+  let buys = 40000 + Math.pow(t,4)*1400000;
+  const opts = fightRevenueOpts(main, mA, mB);
+  if(opts.isTitle) buys *= opts.isInterim ? 1.15 : opts.isMinorTitle ? 1.2 : 1.35;
+  if(opts.isContender) buys *= 1.08;
+  if(opts.isRival) buys *= 1.2;
+  const restPower = ev.card.slice(1,4).reduce((s,ft)=>{
+    const a=STATE.fighters.find(x=>x.id===ft.fighterA), b=STATE.fighters.find(x=>x.id===ft.fighterB);
+    if(!a||!b) return s;
+    return s+(starPower(generalScore(a),a.reputation)+starPower(generalScore(b),b.reputation))/2;
+  },0);
+  buys *= 1 + Math.min(0.15, restPower/100*0.03);
+  return buys;
 }
 function makeContract(level, rep){
   const power = starPower(level, rep);
@@ -634,12 +675,19 @@ function simulateRivalEvent(promo, date){
   const prestigeReversion = Math.round((promo.prestigeBaseline - promo.prestige) * 0.08);
   promo.prestige = clamp(promo.prestige + prestigeSwing + prestigeReversion, 5, 99);
   promo.budget += randi(20,80)*1000;
+  if(!promo.prestigeHistory) promo.prestigeHistory=[];
+  promo.prestigeHistory.push({date, prestige:promo.prestige});
+  if(promo.prestigeHistory.length>60) promo.prestigeHistory.shift();
   return ev;
 }
 // Avanza todas las promotoras rivales un "turno" — se llama cada vez que el jugador
 // termina uno de sus propios eventos, para que el mundo rival progrese al mismo ritmo.
 function advanceRivalPromotions(date){
   (STATE.rivalPromotions||[]).forEach(promo=>{ if(Math.random()<0.7) simulateRivalEvent(promo, date); });
+  // Snapshot del prestigio del jugador al mismo ritmo, para la gráfica comparativa de Promotoras.
+  if(!STATE.playerPrestigeHistory) STATE.playerPrestigeHistory=[];
+  STATE.playerPrestigeHistory.push({date, prestige:playerPrestige()});
+  if(STATE.playerPrestigeHistory.length>60) STATE.playerPrestigeHistory.shift();
 }
 // ¿Hay una promotora rival interesada en robar a este peleador al expirar su contrato?
 // Devuelve null (nadie pica) o {promoId, promoName, amount} — la oferta que usará de palanca en la negociación.
@@ -659,15 +707,43 @@ function loadLocal(){ const s=localStorage.getItem(LS_KEY); return s? JSON.parse
 function getCfg(){ return JSON.parse(localStorage.getItem(LS_CFG)||'{}'); }
 function setCfg(c){ localStorage.setItem(LS_CFG, JSON.stringify(c)); }
 
+/* ====================== SLOTS DE GUARDADO LOCAL ====================== */
+// Copias de seguridad rápidas dentro del propio navegador (además del export/import de JSON
+// y el guardado en GitHub) — útil para probar una decisión arriesgada sin miedo a perder la partida.
+const SAVE_SLOTS=[1,2,3];
+function slotKey(n){ return LS_KEY+'_slot'+n; }
+function getSlotInfo(n){
+  const raw=localStorage.getItem(slotKey(n));
+  if(!raw) return null;
+  try{
+    const data=JSON.parse(raw);
+    return { date:data.meta?.currentDate||'?', budget:data.meta?.budget||0, fighterCount:data.fighters?.length||0, savedAt:data._savedAt||null };
+  }catch(e){ return null; }
+}
+function saveToSlot(n){ localStorage.setItem(slotKey(n), JSON.stringify({...STATE, _savedAt:new Date().toISOString()})); }
+function loadFromSlot(n){
+  const raw=localStorage.getItem(slotKey(n));
+  if(!raw) return false;
+  STATE=JSON.parse(raw); saveLocal(); render();
+  return true;
+}
+function clearSlot(n){ localStorage.removeItem(slotKey(n)); }
+
 /* ====================== MOTOR DE SIMULACIÓN ====================== */
 // Estima el % de victoria simulando el combate muchas veces con el mismo motor real (round a round),
 // no con una comparación de nivel general. Así el striker con buena TDD, el pegador con poco nivel
 // general pero mucho KO, el wrestler de control, etc. se reflejan correctamente en el marchmaking.
 function winProbabilities(fA, fB, rounds=3){
   const N = 400; // más muestras = probabilidad más suavizada
+  // Aplica el mismo bonus de racha que usa la simulación real (momentumBonus) — si no, el
+  // % mostrado antes del combate no reflejaba que un peleador en racha caliente ya llega
+  // reforzado, y podía no coincidir con lo que realmente decide el resultado.
+  const mA=momentumBonus(fA), mB=momentumBonus(fB);
+  const fAb=mA?{...fA,stats:{...fA.stats,...Object.fromEntries(Object.entries(fA.stats).map(([k,v])=>[k,Math.min(99,v+mA)]))}}:fA;
+  const fBb=mB?{...fB,stats:{...fB.stats,...Object.fromEntries(Object.entries(fB.stats).map(([k,v])=>[k,Math.min(99,v+mB)]))}}:fB;
   let winsA = 0;
   for(let i=0;i<N;i++){
-    if(simulateFight(fA, fB, {rounds}).winner===fA) winsA++;
+    if(simulateFight(fAb, fBb, {rounds}).winner===fAb) winsA++;
   }
   const raw = winsA/N*100;
   // Comprimir hacia 50 para reflejar la aleatoriedad real del deporte
@@ -1043,12 +1119,15 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
   const actions=[], stsA=_emptyStats(), stsB=_emptyStats();
   const dmgToA={head:0,body:0,legs:0}, dmgToB={head:0,body:0,legs:0};
   let finish=null;
+  // Golpes en el último minuto del asalto — los jueces reales valoran "cerrar fuerte"
+  let lateA=0, lateB=0;
 
   while(timeElapsed<300 && !finish){
     const act=_resolveAct(pos, fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds);
     actions.push(act);
     timeElapsed+=act.dur||15;
     pos=act.npos||pos;
+    const inLateWindow=timeElapsed>=240; // último minuto (de 300s)
 
     // Accumulate A stats (what A did TO B)
     if(act.sigA){stsA.sigL+=act.sigA;stsA.sigA+=act.sigA;}
@@ -1057,6 +1136,7 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
     if(act.tdAttA) stsA.tdAtt++; if(act.tdLandedA) stsA.tdL++;
     if(act.subAttA) stsA.subAtt++; if(act.kdB) stsA.kd++;
     if(act.ctrlA) stsA.ctrl+=act.ctrlA;
+    if(inLateWindow){ if(act.sigA) lateA+=act.sigA; if(act.kdB) lateA+=15; }
 
     // Accumulate B stats (what B did TO A)
     if(act.sigB){stsB.sigL+=act.sigB;stsB.sigA+=act.sigB;}
@@ -1065,6 +1145,7 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
     if(act.tdAttB) stsB.tdAtt++; if(act.tdLandedB) stsB.tdL++;
     if(act.subAttB) stsB.subAtt++; if(act.kdA) stsB.kd++;
     if(act.ctrlB) stsB.ctrl+=act.ctrlB;
+    if(inLateWindow){ if(act.sigB) lateB+=act.sigB; if(act.kdA) lateB+=15; }
 
     // Health damage by zone
     if(act.dB>0){const z=act.zoneA||'head';dmgToB[z]+=(act.dB)*(z==='legs'?1.5:z==='body'?1.2:1);}
@@ -1073,14 +1154,71 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
     if(act.fin){finish=act.fin; break;}
   }
 
-  // UFC round scoring: effective striking + grappling + knockdowns
-  const scA=stsA.sigL + stsA.tdL*14 + stsA.ctrl/22 + stsA.kd*28;
-  const scB=stsB.sigL + stsB.tdL*14 + stsB.ctrl/22 + stsB.kd*28;
+  // UFC round scoring: golpes efectivos (la cabeza puntúa algo más que el cuerpo, y el
+  // cuerpo algo más que la pierna — como en el criterio real de "effective striking", no
+  // solo volumen bruto) + grappling + knockdowns + un pequeño plus por cerrar el asalto fuerte.
+  const scA=(stsA.headL*1.15 + stsA.bodyL*1.0 + stsA.legsL*0.85) + stsA.tdL*14 + stsA.ctrl/22 + stsA.kd*28 + lateA*0.6;
+  const scB=(stsB.headL*1.15 + stsB.bodyL*1.0 + stsB.legsL*0.85) + stsB.tdL*14 + stsB.ctrl/22 + stsB.kd*28 + lateB*0.6;
   const winner=scA>scB?'A':scB>scA?'B':Math.random()<0.5?'A':'B';
 
   stsA.fightTime=timeElapsed; stsB.fightTime=timeElapsed;
   return {actions, statsA:stsA, statsB:stsB, dmgToA, dmgToB,
           winner, scA:Math.round(scA), scB:Math.round(scB), pos, finish, timeInRound:timeElapsed};
+}
+
+// ── TARJETAS DE LOS 3 JUECES (sistema real de 10 puntos de la UFC) ──────────
+// Reglas unificadas de MMA (verificado): el ganador de cada asalto se lleva 10 puntos y el
+// perdedor 9 (asalto competido), o 8 si lo domina claramente (o hay un KD claro que decide);
+// un asalto realmente parejo puede puntuarse 10-10 (raro). NO existe ningún descuento fijo de
+// puntos por derribo — los derribos solo cuentan como parte del "grappling efectivo" a la hora
+// de decidir quién gana el asalto, igual que los golpes. Los descuentos de puntos en la UFC real
+// son solo por FALTAS (no simuladas aquí), nunca por derribos.
+// Decisión unánime = los 3 jueces coinciden en el ganador. Dividida = 2 jueces para el ganador,
+// 1 para el perdedor. Mayoría = 2 jueces para el ganador, 1 ve el combate empatado.
+function generateJudgeScorecards(roundDetails, canonicalWinner){
+  const scoredRounds = roundDetails.filter(rd=>rd.winner!=='finish');
+  const CLOSE_THRESHOLD = 10; // asaltos reñidos donde un juez puede legítimamente discrepar
+  const judges = [];
+  for(let j=0;j<3;j++){
+    let totalA=0, totalB=0;
+    scoredRounds.forEach(rd=>{
+      const trueWinner = rd.winner; // 'A' o 'B' — ya decidido en _simRound sin ruido de percepción
+      const diff = Math.abs((rd.scoreA||0)-(rd.scoreB||0));
+      // En un asalto reñido, un juez concreto tiene una pequeña probabilidad de verlo al revés
+      // que el resultado "real" de las estadísticas — así es como discrepan jueces de verdad.
+      let roundWinner = trueWinner;
+      if(diff<CLOSE_THRESHOLD && Math.random()<0.15) roundWinner = trueWinner==='A'?'B':'A';
+      const kdA=rd.statsA?.kd||0, kdB=rd.statsB?.kd||0;
+      const kdEdgeForWinner = roundWinner==='A' ? kdA-kdB : kdB-kdA;
+      // Asalto dominante (10-8): margen muy amplio o doble derribo/castigo claro — en la UFC real
+      // esto ocurre en una minoría de asaltos, no en la mitad de ellos.
+      const dominant = diff>=52 || kdEdgeForWinner>=2;
+      const ptsWinner=10, ptsLoser=dominant?8:9;
+      if(roundWinner==='A'){ totalA+=ptsWinner; totalB+=ptsLoser; } else { totalB+=ptsWinner; totalA+=ptsLoser; }
+    });
+    judges.push({totalA, totalB});
+  }
+  // Garantiza consistencia con el ganador real de la pelea (roundsA/roundsB): al menos 2 de los
+  // 3 jueces tienen que coincidir con él, si no el ruido podría producir un resultado imposible
+  // (el combate "lo gana" un peleador pero la mayoría de tarjetas dicen lo contrario).
+  const winnerKey = canonicalWinner==='A'?'totalA':'totalB', loserKey=canonicalWinner==='A'?'totalB':'totalA';
+  let agree = judges.filter(jc=>jc[winnerKey]>jc[loserKey]).length;
+  for(let j=0; j<judges.length && agree<2; j++){
+    if(judges[j][winnerKey]<=judges[j][loserKey]){
+      const need=judges[j][loserKey]-judges[j][winnerKey]+1;
+      judges[j][winnerKey]+=need;
+      agree++;
+    }
+  }
+  return judges;
+}
+function judgeDecType(judges, canonicalWinner){
+  const winnerKey = canonicalWinner==='A'?'totalA':'totalB', loserKey=canonicalWinner==='A'?'totalB':'totalA';
+  const picks = judges.map(jc=> jc[winnerKey]>jc[loserKey] ? 'winner' : jc[winnerKey]<jc[loserKey] ? 'loser' : 'draw');
+  const winnerPicks = picks.filter(p=>p==='winner').length;
+  if(winnerPicks>=3) return 'Unánime';
+  if(picks.includes('draw')) return 'Mayoría';
+  return 'Dividida';
 }
 
 // ── FUNCIÓN PRINCIPAL simulateFight ──────────────────────────────────────────
@@ -1184,14 +1322,12 @@ function simulateFight(fA, fB, opts={}){
 
   if(!result){
     const winner=roundsA>=roundsB?fA:fB;
-    const margin=Math.abs(roundsA-roundsB); // 1=ajustado, 2/3=dominante (en 5 rounds)
-    const closeRounds=roundDetails.filter(rd=>rd.winner!=='finish'&&Math.abs((rd.scoreA||0)-(rd.scoreB||0))<6).length;
-    // Decisión dividida: pelea cerrada (2-1 en 3-round, o muchos asaltos apretados)
-    let decType='Unánime';
-    if(margin===1 && rounds===3){ const r2=Math.random(); if(r2<0.18) decType='Dividida'; else if(r2<0.26) decType='Mayoría'; }
-    else if(margin<=1 && rounds===5){ const r2=Math.random(); if(r2<0.22) decType='Dividida'; else if(r2<0.32) decType='Mayoría'; }
-    else if(closeRounds>=2) { if(Math.random()<0.12) decType='Dividida'; }
-    result={winner,loser:winner===fA?fB:fA,method:'Decisión',decType,round:rounds,time:'5:00'};
+    const canonicalWinner=winner===fA?'A':'B';
+    // Tarjetas reales de los 3 jueces (sistema de 10 puntos) — decType sale de cómo puntúa
+    // cada juez de verdad, no de un porcentaje inventado a partir del margen de asaltos.
+    const judgeScores = generateJudgeScorecards(roundDetails, canonicalWinner);
+    const decType = judgeDecType(judgeScores, canonicalWinner);
+    result={winner,loser:winner===fA?fB:fA,method:'Decisión',decType,round:rounds,time:'5:00',judgeScores};
   }
 
   result.totalRounds=rounds; result.roundScores=roundScores; result.roundDetails=roundDetails;
@@ -1219,6 +1355,14 @@ function methodLabel(resultOrFt){
   if(m!=='Decisión') return m;
   const dt=resultOrFt?.decType||resultOrFt?.result?.decType;
   return dt?`Decisión ${dt}`:m;
+}
+// Abreviatura compacta tipo transmisión real (UD/SD/MD) — para sitios donde no cabe
+// "Decisión Unánime/Dividida/Mayoría" entero (listas, tablas, tarjetas de combate).
+function methodAbbr(resultOrFt){
+  const m=resultOrFt?.method||resultOrFt?.result?.method||'?';
+  if(m!=='Decisión') return m;
+  const dt=resultOrFt?.decType||resultOrFt?.result?.decType;
+  return dt==='Unánime'?'UD':dt==='Dividida'?'SD':dt==='Mayoría'?'MD':m;
 }
 // Color del método
 function methodColor(m){
@@ -1371,35 +1515,36 @@ function checkMilestones(fighter, ev){
   // Convert to Set for fast lookup, works even when loaded from JSON (array)
   const reached = new Set(Array.isArray(STATE.milestonesReached)?STATE.milestonesReached:[...STATE.milestonesReached]);
   const key=(name,id)=>`${name}_${id}`;
-  const reach=(k,msg,icon,color)=>{
+  const reach=(k,msg,icon,color,repDelta,repTarget)=>{
     if(!reached.has(k)){
       reached.add(k);
       STATE.milestonesReached=Array.from(reached);
       richToast(msg,icon,color,5000);
       logEvent(`🏅 HITO: ${msg}`);
+      if(repDelta) updateReputation(repTarget||fighter, repDelta); // los hitos también dan fama, no solo prestigio
     }
   };
   const ufcW=fighter.record.ufcWins||0, momentum=fighter.momentum||0;
   // Hito: 10, 15, 20 victorias UFC
-  [10,15,20].forEach(n=>{ if(ufcW>=n) reach(key(`ufc${n}wins`,fighter.id),`${fName(fighter)} alcanza ${n} victorias en la UFC`,'🎯','#d4af37'); });
+  [[10,3],[15,4],[20,5]].forEach(([n,rep])=>{ if(ufcW>=n) reach(key(`ufc${n}wins`,fighter.id),`${fName(fighter)} alcanza ${n} victorias en la UFC`,'🎯','#d4af37',rep); });
   // Hito: racha de 5+
-  if(momentum>=5) reach(key(`streak5`,fighter.id),`${fName(fighter)} lleva 5 victorias consecutivas — ¡imparable!`,'🔥','#ff6d00');
-  if(momentum>=10) reach(key(`streak10`,fighter.id),`${fName(fighter)} lleva 10 victorias seguidas — histórico`,'💫','#ffd600');
+  if(momentum>=5) reach(key(`streak5`,fighter.id),`${fName(fighter)} lleva 5 victorias consecutivas — ¡imparable!`,'🔥','#ff6d00',4);
+  if(momentum>=10) reach(key(`streak10`,fighter.id),`${fName(fighter)} lleva 10 victorias seguidas — histórico`,'💫','#ffd600',8);
   // Hito: invicto en UFC con 10+ peleas
-  if(fighter.record.ufcLosses===0 && ufcW>=10) reach(key('ufc_unbeaten10',fighter.id),`${fName(fighter)} sigue INVICTO con ${ufcW} victorias en UFC`,'⚡','#69f0ae');
+  if(fighter.record.ufcLosses===0 && ufcW>=10) reach(key('ufc_unbeaten10',fighter.id),`${fName(fighter)} sigue INVICTO con ${ufcW} victorias en UFC`,'⚡','#69f0ae',6);
   // Hito: primer campeón de dos pesos en la liga
   const twoDiv=(fighter.titleReigns||[]).map(r=>STATE.titles.find(t=>t.id===r.titleId)?.divisionId||r.divisionId).filter(Boolean);
-  if(new Set(twoDiv).size>=2) reach(key('twoweight',fighter.id),`${fName(fighter)} se convierte en campeón de dos pesos`,'👑','#d4af37');
+  if(new Set(twoDiv).size>=2) reach(key('twoweight',fighter.id),`${fName(fighter)} se convierte en campeón de dos pesos`,'👑','#d4af37',10);
   // Hito: 5 defensas en un único reinado
   const maxDef=Math.max(0,...(fighter.titleReigns||[]).map(r=>r.defenses||0));
-  if(maxDef>=5) reach(key('def5',fighter.id),`${fName(fighter)} llega a 5 defensas consecutivas`,'🛡️','#64b5f6');
-  if(maxDef>=10) reach(key('def10',fighter.id),`${fName(fighter)} realiza 10 defensas — récord histórico`,'🏆','#ffd600');
+  if(maxDef>=5) reach(key('def5',fighter.id),`${fName(fighter)} llega a 5 defensas consecutivas`,'🛡️','#64b5f6',5);
+  if(maxDef>=10) reach(key('def10',fighter.id),`${fName(fighter)} realiza 10 defensas — récord histórico`,'🏆','#ffd600',8);
   // Hito global: nuevo récord de KO más rápido
   const R=STATE.records||{};
   if(R.fastestKO){
     const prev=STATE._prevFastestKO;
     if(!prev||R.fastestKO.secs<prev) {
-      if(prev) reach(`fastko_${ev?.id||'?'}`,`Nuevo récord: KO más rápido de la liga — ${R.fastestKO.secs}s`,'💥','#ef5350');
+      if(prev) reach(`fastko_${ev?.id||'?'}`,`Nuevo récord: KO más rápido de la liga — ${R.fastestKO.secs}s`,'💥','#ef5350',6,STATE.fighters.find(x=>x.id===R.fastestKO.fighterId));
       STATE._prevFastestKO=R.fastestKO.secs;
     }
   }
@@ -1941,9 +2086,14 @@ function goatScore(f){
     weightedTitleDays += days * w;
   });
 
+  // Los premios ANUALES (Peleador/Pelea/KO/Sumisión/Actuación del Año) no contaban nada aquí —
+  // solo los bonos por combate (POTN/FOTN de una noche concreta). Un Peleador del Año pesa casi
+  // tanto como un reinado de título; los otros premios anuales, más que su equivalente nocturno.
   let score = wins*1.4 - losses*1.0 + ufcKoWinsOf(f)*0.4 + ufcSubWinsOf(f)*0.4 +
     weightedDefenses*12 + weightedReigns*14 + weightedTitleDays*0.02 +
-    f.bonuses.performanceOfNight*1.2 + f.bonuses.fightOfNight*0.8;
+    f.bonuses.performanceOfNight*1.2 + f.bonuses.fightOfNight*0.8 +
+    (f.bonuses.fighterOfYear||0)*8 + (f.bonuses.fightOfYear||0)*3 + (f.bonuses.koOfYear||0)*3 +
+    (f.bonuses.subOfYear||0)*3 + (f.bonuses.performanceOfYear||0)*3;
   if(multiDiv>1) score += (multiDiv-1)*25; // bonus por campeón en más de una categoría (valioso, pero no debe pesar más que defender el título muchas veces)
   // Sin haber sido campeón nunca (ni siquiera interino), el legado pesa mucho menos
   if(reigns.length===0) score *= 0.45;
@@ -2124,6 +2274,7 @@ function simulateEvent(ev){
       fight.missedWeight=missedId;
       logEvent(`⚖️ ${fName(mf)} no da el peso — el combate se realiza igualmente, pero ${fName(mf)} no podrá ganar/retener el título si gana el combate.`);
       mf.rankScore=Math.max(0,(mf.rankScore||0)-15);
+      mf.missedWeightCount=(mf.missedWeightCount||0)+1;
       if(STATE.atpPoints) STATE.atpPoints[missedId]=Math.round((STATE.atpPoints[missedId]||0)*0.85);
     }
     const fAm=momentumBonus(fA)+weightCutBonus(fight,fA.id,missedId), fBm=momentumBonus(fB)+weightCutBonus(fight,fB.id,missedId);
@@ -2133,7 +2284,7 @@ function simulateEvent(ev){
     fight.result = {
       winnerId:result.winner.id, loserId:result.loser.id, method:result.method, decType:result.decType||null, round:result.round, time:result.time,
       fightOfNight:result.fightOfNight, performance:result.performance,
-      missedWeight: missedId||null
+      missedWeight: missedId||null, judgeScores:result.judgeScores||null
     };
     applyFightResultToState(fight, fA, fB, result, ev);
     checkAndUpdateRecords(fA, fB, result, ev.date);
@@ -2159,17 +2310,21 @@ function vacateTitleForInjury(titleId){
 }
 
 /* ====================== RENDER: SHELL ====================== */
+// Agrupadas por tema (Principal · Competición · Estadísticas · Peleadores · Negocio · Info) —
+// el 3er valor marca el inicio de un grupo nuevo, para pintar un separador visual en la barra.
 const TABS = [
-  ['dashboard','Inicio'],['roster','Roster'],['rankings','Rankings'],['titles','Títulos'],
-  ['divisions','Divisiones'],['events','Eventos'],['stats','Estadísticas'],['activity','Actividad'],['hof','Hall of Fame'],
-  ['scout','Scouting'],['rivalries','Rivalidades'],['infirmary','Enfermería'],['compare','Comparar'],['rankHistory','Ranking hist.'],
-  ['promotions','Promotoras'],['finance','Finanzas'],['editor','Editor'],['guide','Guía'],['settings','GitHub']
+  ['dashboard','Inicio'],['roster','Roster'],['events','Eventos'],
+  ['rankings','Rankings',true],['titles','Títulos'],['divisions','Divisiones'],['rankHistory','Ranking hist.'],
+  ['stats','Estadísticas',true],['activity','Actividad'],['hof','Hall of Fame'],
+  ['scout','Scouting',true],['rivalries','Rivalidades'],['infirmary','Enfermería'],['compare','Comparar'],
+  ['promotions','Promotoras',true],['finance','Finanzas'],['editor','Editor'],
+  ['guide','Guía',true],['settings','GitHub']
 ];
 
 function renderShell(){
   document.getElementById('topDate').textContent = '📅 ' + fmtDate(STATE.meta.currentDate);
   const tabsEl = document.getElementById('tabs');
-  tabsEl.innerHTML = TABS.map(([id,label])=>`<div class="tab ${UI.tab===id?'active':''}" data-tab="${id}">${label}</div>`).join('');
+  tabsEl.innerHTML = TABS.map(([id,label,newGroup])=>`<div class="tab ${UI.tab===id?'active':''}${newGroup?' tab-group-start':''}" data-tab="${id}">${label}</div>`).join('');
   tabsEl.querySelectorAll('.tab').forEach(t=> t.onclick=()=>{ UI.tab=t.dataset.tab; render(); });
   renderTab();
 }
@@ -2525,7 +2680,7 @@ function tplRivalries(){
         </div>
       </div>
       ${fights.map((f,i)=>{const mc=m=>methodColor(m);const t=f.ft.titleId?STATE.titles.find(x=>x.id===f.ft.titleId):null;
-        return `<div style="font-size:.72rem;padding:3px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between"><span>${i+1}. <b>${f.w?.name||'?'}</b> vence · ${fmtDate(f.date)}</span><span style="color:${mc(f.ft.result.method)}">${f.ft.result.method} R${f.ft.result.round}${t?' 🏆':''}</span></div>`;
+        return `<div style="font-size:.72rem;padding:3px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between"><span>${i+1}. <b>${f.w?.name||'?'}</b> vence · ${fmtDate(f.date)}</span><span style="color:${mc(f.ft.result.method)}">${methodAbbr(f.ft.result)} R${f.ft.result.round}${t?' 🏆':''}</span></div>`;
       }).join('')}
     </div>`;
   }).join('')}`;
@@ -2559,6 +2714,8 @@ function tplPromotions(){
       ${bar(rp.prestige,'var(--blue)')}
       <span style="width:30px;text-align:right;font-size:.78rem">${rp.prestige}</span>
     </div>`).join('')}
+    <h4 style="margin-top:10px">Evolución del prestigio</h4>
+    <div id="prestigeChart"></div>
   </div>
   ${rivals.length===0?'<div class="card"><p class="muted">No hay promotoras rivales todavía. Puedes crear una desde el Editor.</p></div>':''}
   ${rivals.map(rp=>`
@@ -2620,6 +2777,10 @@ function bindPromotions(){
       buyRivalFighter(rp, rf);
     };
   });
+  const PROMO_COLORS=['var(--gold)','var(--blue)','var(--green)','var(--sub)','var(--dec)'];
+  const series=[{label:`${STATE.meta.leagueName} (tú)`, color:'var(--red)', points:(STATE.playerPrestigeHistory||[]).map(h=>({x:h.date,y:h.prestige}))}]
+    .concat((STATE.rivalPromotions||[]).map((rp,i)=>({label:rp.short||rp.name, color:PROMO_COLORS[i%PROMO_COLORS.length], points:(rp.prestigeHistory||[]).map(h=>({x:h.date,y:h.prestige}))})));
+  renderLineChart('prestigeChart', series, {height:150, yFmt:v=>Math.round(v), xLabel:fmtDate});
 }
 // Perfil simplificado de un peleador rival (no tiene todo el historial de un peleador propio)
 function openRivalFighterProfile(rf, rp){
@@ -2648,6 +2809,7 @@ function buyRivalFighter(rp, rf){
   if((STATE.meta.budget||0)<cost){ toast(`❌ Presupuesto insuficiente (necesitas $${cost.toLocaleString()})`); return; }
   if(!confirm(`¿Pagar $${cost.toLocaleString()} por los derechos de ${rf.name} (${rp.name})?`)) return;
   STATE.meta.budget -= cost;
+  recordBudgetTx(-cost, `Fichaje de ${rf.name} (${rp.name})`);
   rp.fighters = rp.fighters.filter(x=>x.id!==rf.id);
   if(isChamp){
     const t=rp.titles.find(x=>x.holderId===rf.id);
@@ -2678,6 +2840,71 @@ function restoreFighterFromRival(rf, isChamp){
   };
 }
 
+/* ====================== GRÁFICAS (SVG ligero, sin librerías) ====================== */
+// series: [{label, color, points:[{x,y}]}] — points ya ordenados por x, mismo eje Y para todas.
+// opts: {height, yFmt(v), xLabel(x)}. Un único eje Y siempre (nunca doble eje).
+function renderLineChart(containerId, series, opts){
+  opts = opts||{};
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  series = series.filter(s=>s.points && s.points.length);
+  if(!series.length){ el.innerHTML='<p class="muted" style="font-size:.75rem">Sin datos históricos todavía — juega algún evento.</p>'; return; }
+  const W=opts.width||340, H=opts.height||140, PAD_L=44, PAD_R=10, PAD_T=10, PAD_B=20;
+  const plotW=W-PAD_L-PAD_R, plotH=H-PAD_T-PAD_B;
+  const n = Math.max(...series.map(s=>s.points.length));
+  const yVals = series.flatMap(s=>s.points.map(p=>p.y));
+  let yMin=Math.min(0,...yVals), yMax=Math.max(...yVals);
+  if(yMin===yMax){ yMin-=1; yMax+=1; }
+  const yPad=(yMax-yMin)*0.08; yMin-=yPad; yMax+=yPad;
+  const xFor = i => PAD_L + (n<=1?plotW/2:(i/(n-1))*plotW);
+  const yFor = v => PAD_T + plotH - ((v-yMin)/(yMax-yMin))*plotH;
+
+  const gridLines = [0,0.25,0.5,0.75,1].map(t=>{
+    const y = PAD_T + t*plotH;
+    const val = yMax - t*(yMax-yMin);
+    return `<line x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${W-PAD_R}" y2="${y.toFixed(1)}" style="stroke:var(--line);stroke-width:1"/>
+      <text x="${PAD_L-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" style="fill:var(--txt3)">${opts.yFmt?opts.yFmt(val):Math.round(val)}</text>`;
+  }).join('');
+  const zeroY = (yMin<0&&yMax>0) ? yFor(0) : null;
+  const zeroLine = zeroY!=null ? `<line x1="${PAD_L}" y1="${zeroY.toFixed(1)}" x2="${W-PAD_R}" y2="${zeroY.toFixed(1)}" style="stroke:var(--txt3);stroke-width:1;stroke-dasharray:3,3"/>` : '';
+
+  const paths = series.map(s=>{
+    const d = s.points.map((p,i)=>`${i===0?'M':'L'}${xFor(i).toFixed(1)},${yFor(p.y).toFixed(1)}`).join(' ');
+    return `<path d="${d}" fill="none" style="stroke:${s.color};stroke-width:2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }).join('');
+
+  const colW = plotW/Math.max(1,n-1||1);
+  const hitCols = Array.from({length:n},(_,i)=>`<rect class="lcHit" data-i="${i}" x="${(xFor(i)-colW/2).toFixed(1)}" y="${PAD_T}" width="${colW.toFixed(1)}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>`).join('');
+
+  const legend = series.length>1 ? `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px">${series.map(s=>
+    `<span style="font-size:.68rem;color:var(--txt2)"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.color};margin-right:4px"></span>${s.label}</span>`
+  ).join('')}</div>` : '';
+
+  el.innerHTML = `${legend}
+  <div style="position:relative">
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="overflow:visible;display:block">
+      ${gridLines}${zeroLine}${paths}${hitCols}
+    </svg>
+    <div class="lcTooltip" style="position:absolute;display:none;pointer-events:none;background:#000;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:.68rem;white-space:nowrap;top:2px;transform:translateX(-50%);z-index:2"></div>
+    <div class="lcCrosshair" style="position:absolute;display:none;pointer-events:none;top:${PAD_T}px;width:1px;height:${plotH}px;background:var(--txt3)"></div>
+  </div>`;
+
+  const tooltip=el.querySelector('.lcTooltip'), crosshair=el.querySelector('.lcCrosshair');
+  el.querySelectorAll('.lcHit').forEach(rect=>{
+    const i=parseInt(rect.dataset.i);
+    const pct=(xFor(i)/W*100).toFixed(2)+'%';
+    rect.addEventListener('mouseenter',()=>{
+      crosshair.style.left=pct; crosshair.style.display='block';
+      const lines=series.filter(s=>s.points[i]).map(s=>`<div><span style="color:${s.color}">●</span> ${s.label}: <b>${opts.yFmt?opts.yFmt(s.points[i].y):s.points[i].y.toLocaleString()}</b></div>`).join('');
+      const xv = series.find(s=>s.points[i])?.points[i]?.x;
+      const xLabel = opts.xLabel ? opts.xLabel(xv) : (xv??'');
+      tooltip.innerHTML = `<div style="color:var(--txt3);margin-bottom:2px">${xLabel}</div>${lines}`;
+      tooltip.style.left=pct; tooltip.style.display='block';
+    });
+    rect.addEventListener('mouseleave',()=>{ tooltip.style.display='none'; crosshair.style.display='none'; });
+  });
+}
+
 /* ====================== FINANZAS ====================== */
 function fighterCareerEarnings(f){
   return (f.earnings?.totalPurses||0)+(f.earnings?.totalBonusMoney||0);
@@ -2687,12 +2914,14 @@ function tplFinance(){
   const lifetime = completedEvents.reduce((acc,ev)=>{
     acc.revenue+=ev._finance.revenue||0; acc.purses+=ev._finance.purses||0;
     acc.bonus+=ev._finance.bonusPayouts||0; acc.net+=ev._finance.net||0;
+    acc.buys+=ev._finance.buys||0;
     return acc;
-  },{revenue:0,purses:0,bonus:0,net:0});
+  },{revenue:0,purses:0,bonus:0,net:0,buys:0});
   const avgNet = completedEvents.length? Math.round(lifetime.net/completedEvents.length) : 0;
 
   const mostProfitable = completedEvents.slice().sort((a,b)=>b._finance.net-a._finance.net)[0];
   const leastProfitable = completedEvents.slice().sort((a,b)=>a._finance.net-b._finance.net)[0];
+  const mostBuys = completedEvents.slice().sort((a,b)=>(b._finance.buys||0)-(a._finance.buys||0))[0];
 
   const topEarners = STATE.fighters.filter(f=>fighterCareerEarnings(f)>0)
     .slice().sort((a,b)=>fighterCareerEarnings(b)-fighterCareerEarnings(a)).slice(0,10);
@@ -2714,8 +2943,14 @@ function tplFinance(){
   </div>
 
   <div class="card">
+    <h3>📈 Evolución del presupuesto</h3>
+    <div id="budgetChart" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
     <h3>📊 Histórico acumulado (${completedEvents.length} eventos)</h3>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px">
+      ${stat('📺 Compras PPV',lifetime.buys.toLocaleString(),'#82b1ff')}
       ${stat('Ingresos totales','$'+lifetime.revenue.toLocaleString(),'#69f0ae')}
       ${stat('Bolsas pagadas','$'+lifetime.purses.toLocaleString(),'#ef5350')}
       ${stat('Bonos (FOTN/POTN)','$'+lifetime.bonus.toLocaleString(),'#ffb74d')}
@@ -2726,6 +2961,7 @@ function tplFinance(){
 
   <div class="card">
     <h3>🏆 Líderes financieros</h3>
+    ${mostBuys?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">📺 Evento con más compras PPV</span><span style="font-size:.78rem;font-weight:700;color:#82b1ff">${fName(mostBuys)} (${(mostBuys._finance.buys||0).toLocaleString()})</span></div>`:''}
     ${mostProfitable?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">📈 Evento más rentable</span><span style="font-size:.78rem;font-weight:700;color:#69f0ae">${fName(mostProfitable)} (+$${mostProfitable._finance.net.toLocaleString()})</span></div>`:''}
     ${leastProfitable?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">📉 Evento menos rentable</span><span style="font-size:.78rem;font-weight:700;color:${leastProfitable._finance.net>=0?'#69f0ae':'#ef5350'}">${fName(leastProfitable)} (${leastProfitable._finance.net>=0?'+':''}$${leastProfitable._finance.net.toLocaleString()})</span></div>`:''}
     ${topContract?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">💵 Contrato activo más caro</span><span class="clickable" data-id="${topContract.id}" style="font-size:.78rem;font-weight:700;cursor:pointer">${fName(topContract)} ($${(topContract.contract?.salary||0).toLocaleString()}/pelea)</span></div>`:''}
@@ -2761,17 +2997,28 @@ function tplFinance(){
       <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1a1a1a">
         <div>
           <div style="font-size:.8rem;font-weight:700">${fName(ev)}</div>
-          <div class="muted" style="font-size:.68rem">${fmtDate(ev.date)} · ingresos $${(ev._finance.revenue||0).toLocaleString()} − bolsas $${(ev._finance.purses||0).toLocaleString()}</div>
+          <div class="muted" style="font-size:.68rem">${fmtDate(ev.date)} · 📺 ${(ev._finance.buys||0).toLocaleString()} compras · ingresos $${(ev._finance.revenue||0).toLocaleString()} − bolsas $${(ev._finance.purses||0).toLocaleString()}</div>
         </div>
         <div style="font-weight:800;color:${ev._finance.net>=0?'#69f0ae':'#ef5350'}">${ev._finance.net>=0?'+':''}$${ev._finance.net.toLocaleString()}</div>
       </div>`).join('')}
   </div>
   `;
 }
+function budgetHistorySeries(){
+  const ledger = STATE.budgetLedger||[];
+  if(!ledger.length) return [{x:'Ahora', y:STATE.meta.budget||0}];
+  const startBalance = ledger[0].balance - ledger[0].amount;
+  const points = [{x:'Inicio', y:startBalance}];
+  ledger.forEach(tx=>points.push({x:tx.date, y:tx.balance}));
+  return points;
+}
 function bindFinance(){
   // Los elementos con [data-id] abren el perfil del peleador vía el delegado global de clicks.
   document.querySelectorAll('.negotiateBtn').forEach(btn=>{
     btn.onclick=e=>{ e.stopPropagation(); openContractNegotiation(btn.dataset.id); };
+  });
+  renderLineChart('budgetChart', [{label:'Presupuesto', color:'var(--gold)', points:budgetHistorySeries()}], {
+    height:150, yFmt:v=>'$'+Math.round(v).toLocaleString(), xLabel:x=>x==='Inicio'||x==='Ahora'?x:fmtDate(x)
   });
 }
 
@@ -2850,7 +3097,7 @@ function openFighterModal(fid, context){
     const r=found.ft.result; const opp = STATE.fighters.find(x=>x.id===(r.winnerId===f.id?r.loserId:r.winnerId));
     const won = r.winnerId===f.id;
     const belt = found.ft.titleId? ` ${titleIcon(STATE.titles.find(t=>t.id===found.ft.titleId)||{})} <b>Combate por el título</b>` : '';
-    return `<div class="clickable" onclick="showFightById('${found.ev.id}','${found.ft.id}')" style="padding:3px 0;border-bottom:1px solid #0d0d0d;cursor:pointer">${won?'✅':'❌'} vs ${opp?opp.name:'?'} — <span style="color:${r.method==='KO/TKO'?'#ef5350':r.method==='Sumisión'?'#ce93d8':'#aaa'}">${r.method}</span> R${r.round} · <span class="muted">${fmtDate(found.ev.date)} · ${fName(found.ev)}</span>${belt}</div>`;
+    return `<div class="clickable" onclick="showFightById('${found.ev.id}','${found.ft.id}')" style="padding:3px 0;border-bottom:1px solid #0d0d0d;cursor:pointer">${won?'✅':'❌'} vs ${opp?opp.name:'?'} — <span style="color:${r.method==='KO/TKO'?'#ef5350':r.method==='Sumisión'?'#ce93d8':'#aaa'}">${methodAbbr(r)}</span> R${r.round} · <span class="muted">${fmtDate(found.ev.date)} · ${fName(found.ev)}</span>${belt}</div>`;
   }).join('') || '<p class="muted">Sin combates simulados.</p>';
 
   // Posición en rankings para peleadores activos
@@ -2933,7 +3180,7 @@ function openFighterModal(fid, context){
           <span>🏆 Finalizaciones: <b>${ufcKoWinsOf(f)+ufcSubWinsOf(f)}</b></span>
         </div>
       </div>
-      <p class="muted">Bonos: ${f.bonuses.performanceOfNight} Actuación de la Noche · ${f.bonuses.fightOfNight} Pelea de la Noche</p>
+      <p class="muted">Bonos: ${f.bonuses.performanceOfNight} Actuación de la Noche · ${f.bonuses.fightOfNight} Pelea de la Noche${f.missedWeightCount?` · ⚖️ ${f.missedWeightCount} fallo${f.missedWeightCount>1?'s':''} de peso`:''}</p>
       ${(()=>{
         if(f.status==='retired'||!f.contract) return '';
         const c=f.contract;
@@ -2986,6 +3233,12 @@ function openFighterModal(fid, context){
         // Actuación del Año
         const perfYears = allAwards.filter(a=>a.performanceOfYear?.fA===f.id).map(a=>a.year);
         if(perfYears.length) rows.push('<p class="muted">⭐ Actuación del Año: '+perfYears.length+'× ('+perfYears.join(', ')+')</p>');
+        // Sorpresa del Año
+        const upsetYears = allAwards.filter(a=>a.upsetOfYear?.fA===f.id).map(a=>{
+          const opp=STATE.fighters.find(x=>x.id===a.upsetOfYear.fB);
+          return a.year+(opp?' vs '+opp.name.split(' ').pop():'');
+        });
+        if(upsetYears.length) rows.push('<p class="muted">😱 Sorpresa del Año: '+upsetYears.length+'× · '+upsetYears.join(', ')+'</p>');
         return rows.join('');
       })()}
       ${f.status==='suspended'?`<p style="color:#ef5350;font-weight:600;font-size:.8rem;margin:4px 0">🚫 SANCIONADO — ${f.suspension?.note||'Sanción'} · hasta ${fmtDate(f.suspension?.untilDate)}</p>`:''}
@@ -3082,6 +3335,7 @@ function openFighterModal(fid, context){
     f.status='active'; f._scoutExpires=null;
     if(!f.contract) f.contract=makeContract(generalScore(f), f.reputation);
     STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
+    recordBudgetTx(-signingCost, `Fichaje de ${fName(f)} (Scouting)`);
     // Remove from scoutCandidates if present
     if(STATE.scoutCandidates) STATE.scoutCandidates=STATE.scoutCandidates.filter(c=>c.id!==f.id);
     if(!f.debut) f.debut=STATE.meta.currentDate;
@@ -3379,8 +3633,10 @@ function tplEventBuilder(ev){
         return acc;
       },{guaranteedPurse:0,maxBonus:0,estRevenue:0});
       const estNet = est.estRevenue - est.guaranteedPurse;
+      const estBuys = estimateEventBuys(ev);
       return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-top:8px;font-size:.78rem">
         <div style="font-size:.65rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💰 Estimación económica del evento</div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">📺 Compras PPV estimadas</span><b style="color:#82b1ff">${Math.round(estBuys).toLocaleString()}</b></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Bolsas garantizadas</span><b>$${Math.round(est.guaranteedPurse).toLocaleString()}</b></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">+ posibles bonos por finalización</span><span>hasta $${Math.round(est.maxBonus).toLocaleString()}</span></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Ingresos estimados</span><b style="color:#69f0ae">$${Math.round(est.estRevenue).toLocaleString()}</b></div>
@@ -3706,6 +3962,13 @@ function showFightResultModal(fight, ev){
   const title=fight.titleId?STATE.titles.find(t=>t.id===fight.titleId):null;
   const champChange=fight.titleId&&r.winnerId!==title?.holderId;
   const method_label=r.method+(r.decType?' '+r.decType:'');
+  // Tarjetas de los 3 jueces (solo existen si el combate acabó por decisión) — se muestran
+  // siempre con la puntuación del ganador primero, sin importar en qué esquina peleara.
+  const winnerIsA = r.winnerId===fight.fighterA;
+  const scorecardsHtml = (r.judgeScores&&r.judgeScores.length) ? r.judgeScores.map(jc=>{
+    const wScore = winnerIsA?jc.totalA:jc.totalB, lScore = winnerIsA?jc.totalB:jc.totalA;
+    return `${wScore}-${lScore}`;
+  }).join(' · ') : null;
   // Calc fight stats from roundDetails if available
   const rdList = r.roundDetails||[];
   const sigW = rdList.reduce((s,rd)=>s+(r.winnerId===fight.fighterA?(rd.statsA?.sigL||0):(rd.statsB?.sigL||0)),0);
@@ -3740,6 +4003,7 @@ function showFightResultModal(fight, ev){
         <div style="font-size:1.8rem">${isKO?'💥':isSub?'🤼':'📋'}</div>
         <div style="font-size:1.2rem;font-weight:900;color:${isKO?'#ef5350':isSub?'#ce93d8':'#90caf9'};margin:4px 0">${method_label}</div>
         <div style="font-size:.82rem;color:#aaa">Ronda <b style="color:#fff">${r.round}</b> · <b style="color:#fff">${r.time}</b></div>
+        ${scorecardsHtml?`<div style="font-size:.75rem;color:#888;margin-top:4px">📋 Tarjetas: <b style="color:#ccc">${scorecardsHtml}</b></div>`:''}
       </div>
       ${r.fightOfNight||r.isFOTN?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">🌟 Pelea de la Noche</div>':''}
       ${r.performance?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">⭐ Actuación de la Noche</div>':''}
@@ -4397,7 +4661,7 @@ function openLiveFightViewer(ev){
             const mc=methodColor(last.method);
             return `<div style="padding:0 14px 12px;background:var(--bg3);margin:0 1px;border-top:1px solid var(--line)">
               <div style="font-size:.65rem;color:var(--txt2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚔️ Contexto — ${prev.length===1?'Primera revancha':prev.length===2?'Trilogía':'Pelea #'+(prev.length+1)}</div>
-              <div style="font-size:.78rem">En su último encuentro, <b style="color:${won?'var(--red)':'var(--blue)'}">${won?fA.name:fB.name}</b> venció por <span style="color:${mc}">${last.method}</span> R${last.round} <span style="color:var(--txt3)">(${last.date?.slice(0,7)||''})</span></div>
+              <div style="font-size:.78rem">En su último encuentro, <b style="color:${won?'var(--red)':'var(--blue)'}">${won?fA.name:fB.name}</b> venció por <span style="color:${mc}">${methodLabel(last)}</span> R${last.round} <span style="color:var(--txt3)">(${last.date?.slice(0,7)||''})</span></div>
             </div>`;
           })()}
           <div style="padding:0 14px 12px;text-align:center">
@@ -4632,8 +4896,9 @@ function openLiveFightViewer(ev){
             </div>
             <div style="background:var(--bg3);border-radius:10px;padding:14px;margin:0 0 14px">
               <div style="font-size:2.5rem">${isKO?'💥':isSub?'🤼':'📋'}</div>
-              <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${result.method}</div>
+              <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${methodLabel(result)}</div>
               <div style="font-size:.9rem;color:var(--txt2)">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
+              ${result.judgeScores?`<div style="font-size:.78rem;color:var(--txt2);margin-top:4px">📋 Tarjetas: <b style="color:#fff">${result.judgeScores.map(jc=>{const wS=w.id===fA.id?jc.totalA:jc.totalB, lS=w.id===fA.id?jc.totalB:jc.totalA; return `${wS}-${lS}`;}).join(' · ')}</b></div>`:''}
             </div>
             ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
             ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
@@ -4711,7 +4976,7 @@ function openLiveFightViewer(ev){
         winnerId:result.winner.id, loserId:result.loser.id,
         method:result.method, decType:result.decType||null, round:result.round, time:result.time,
         fightOfNight:result.fightOfNight, performance:result.performance,
-        missedWeight: missedId||null
+        missedWeight: missedId||null, judgeScores:result.judgeScores||null
       };
       if(missedId){
         const mf=STATE.fighters.find(x=>x.id===missedId);
@@ -4719,6 +4984,7 @@ function openLiveFightViewer(ev){
           fight.missedWeight=missedId;
           logEvent(`⚖️ ${fName(mf)} no da el peso — el combate se realiza igualmente, pero ${fName(mf)} no podrá ganar/retener el título si gana el combate.`);
           mf.rankScore=Math.max(0,(mf.rankScore||0)-15);
+          mf.missedWeightCount=(mf.missedWeightCount||0)+1;
           if(STATE.atpPoints) STATE.atpPoints[missedId]=Math.round((STATE.atpPoints[missedId]||0)*0.85);
         }
       }
@@ -5059,7 +5325,7 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   saveStatSnapshot(winner, ev.date, ev.name);
   saveStatSnapshot(loser, ev.date, ev.name);
   checkMilestones(winner, ev);
-  logEvent(`🥊 ${fName(winner)} derrota a ${fName(loser)} por ${result.method} (R${result.round}, ${result.time})`);
+  logEvent(`🥊 ${fName(winner)} derrota a ${fName(loser)} por ${methodLabel(result)} (R${result.round}, ${result.time})`);
 }
 
 function giveAwardsForYear(awardYear){
@@ -5080,6 +5346,7 @@ function giveAwardsForYear(awardYear){
       if(!fw.bonuses.fightOfYear)fw.bonuses.fightOfYear=0; fw.bonuses.fightOfYear++;
       if(!fl.bonuses.fightOfYear)fl.bonuses.fightOfYear=0; fl.bonuses.fightOfYear++;
       fw.bonuses.lastFightOfYear=`${fName(fl)} (${awardYear})`; fl.bonuses.lastFightOfYear=`${fName(fw)} (${awardYear})`;
+      updateReputation(fw,8); updateReputation(fl,8); // ganar y ser protagonista de la Pelea del Año da fama a los dos
       logEvent(`🏅 Pelea del Año ${awardYear}: ${fName(fw)} vs ${fName(fl)}`);
       richToast(`🏅 Pelea del Año ${awardYear}: ${fName(fw)} vs ${fName(fl)}!`,'🏅','#ffd700',5000);
     }
@@ -5091,6 +5358,7 @@ function giveAwardsForYear(awardYear){
     if(pw){
       if(!pw.bonuses.performanceOfYear)pw.bonuses.performanceOfYear=0; pw.bonuses.performanceOfYear++;
       pw.bonuses.lastPerformanceOfYear=String(awardYear);
+      updateReputation(pw,8);
       logEvent(`⭐ Actuación del Año ${awardYear}: ${fName(pw)}`);
       richToast(`⭐ Actuación del Año ${awardYear}: ${fName(pw)}!`,'⭐','#ffd700',4500);
     }
@@ -5107,6 +5375,7 @@ function giveAwardsForYear(awardYear){
     if(kw&&kl){
       if(!kw.bonuses.koOfYear)kw.bonuses.koOfYear=0; kw.bonuses.koOfYear++;
       kw.bonuses.lastKoOfYear=`vs ${fName(kl)} (${awardYear}) R${koW.result.round} ${koW.result.time}`;
+      updateReputation(kw,8);
       logEvent(`💥 KO del Año ${awardYear}: ${fName(kw)} def. ${fName(kl)} R${koW.result.round}`);
       richToast(`💥 KO del Año ${awardYear}: ${fName(kw)}!`,'💥','#ef5350',4000);
     }
@@ -5120,6 +5389,7 @@ function giveAwardsForYear(awardYear){
     if(sw&&sl){
       if(!sw.bonuses.subOfYear)sw.bonuses.subOfYear=0; sw.bonuses.subOfYear++;
       sw.bonuses.lastSubOfYear=`vs ${fName(sl)} (${awardYear}) R${subW.result.round} ${subW.result.time}`;
+      updateReputation(sw,8);
       logEvent(`🤼 Sumisión del Año ${awardYear}: ${fName(sw)} def. ${fName(sl)}`);
       richToast(`🤼 Sumisión del Año ${awardYear}: ${fName(sw)}!`,'🤼','#ce93d8',4000);
     }
@@ -5139,15 +5409,51 @@ function giveAwardsForYear(awardYear){
     if(!fotyF.bonuses.fighterOfYear)fotyF.bonuses.fighterOfYear=0;
     fotyF.bonuses.fighterOfYear++;
     fotyF.bonuses.lastFighterOfYear=awardYear;
+    updateReputation(fotyF,15); // el máximo honor de la temporada es el que más fama da
     logEvent(`🏆 Peleador del Año ${awardYear}: ${fName(fotyF)}`);
     richToast(`🏆 Peleador del Año ${awardYear}: ${fName(fotyF)}!`,'🏆','#d4af37',6000);
+  }
+  // Sorpresa del Año: la mayor diferencia de nivel a favor del PERDEDOR sobre el papel — el
+  // ganador era claramente el peor puesto sobre el papel y aun así se llevó la victoria.
+  let upsetFight=null, upsetDiff=3; // umbral mínimo para que cuente como sorpresa real
+  yearFights.forEach(ft=>{
+    const w=STATE.fighters.find(x=>x.id===ft.result.winnerId), l=STATE.fighters.find(x=>x.id===ft.result.loserId);
+    if(!w||!l) return;
+    const diff=overallRating(l)-overallRating(w);
+    if(diff>upsetDiff){ upsetDiff=diff; upsetFight=ft; }
+  });
+  if(upsetFight){
+    const uw=STATE.fighters.find(x=>x.id===upsetFight.result.winnerId), ul=STATE.fighters.find(x=>x.id===upsetFight.result.loserId);
+    if(uw&&ul){
+      if(!uw.bonuses.upsetOfYear) uw.bonuses.upsetOfYear=0; uw.bonuses.upsetOfYear++;
+      uw.bonuses.lastUpsetOfYear=`vs ${fName(ul)} (${awardYear})`;
+      updateReputation(uw,10); // dar la sorpresa del año también hace fama
+      logEvent(`😱 Sorpresa del Año ${awardYear}: ${fName(uw)} sorprende a ${fName(ul)}`);
+      richToast(`😱 Sorpresa del Año ${awardYear}: ${fName(uw)}!`,'😱','#ff7043',5000);
+    }
+  }
+  // Decepción del Año: la pelea con más expectación (título o entre los más famosos) que acabó
+  // en la decisión unánime más sosa del año — sin premio ni fama para nadie, es solo la cruz
+  // narrativa de la ceremonia (para que no todo sean noticias buenas).
+  const dudCands = yearFights.filter(ft=>ft.result.method==='Decisión' && ft.result.decType==='Unánime');
+  let dudFight=null;
+  if(dudCands.length){
+    const hypeOf=ft=>{
+      const a=STATE.fighters.find(x=>x.id===ft.fighterA), b=STATE.fighters.find(x=>x.id===ft.fighterB);
+      return (ft.titleId?50:0)+(a?.reputation||50)+(b?.reputation||50);
+    };
+    dudFight=dudCands.slice().sort((a,b)=>hypeOf(b)-hypeOf(a))[0];
   }
   STATE.awards.push({year:awardYear,
     fighterOfYear:fotyId||null,
     fightOfYear:fotyFight?{fA:fotyFight.fighterA,fB:fotyFight.fighterB}:null,
-    koOfYear:koW?{fA:koW.fighterA,fB:koW.fighterB,round:koW.result.round,time:koW.result.time}:null,
-    subOfYear:subW?{fA:subW.fighterA,fB:subW.fighterB,round:subW.result.round,time:subW.result.time}:null,
+    // fA/fB = ganador/perdedor (NO las esquinas del combate) — usar fighterA/fighterB del combate
+    // habría atribuido el KO/sumisión al peleador equivocado la mitad de las veces.
+    koOfYear:koW?{fA:koW.result.winnerId,fB:koW.result.loserId,round:koW.result.round,time:koW.result.time}:null,
+    subOfYear:subW?{fA:subW.result.winnerId,fB:subW.result.loserId,round:subW.result.round,time:subW.result.time}:null,
     performanceOfYear:potyFight?{fA:potyFight.fighterA,fB:potyFight.fighterB}:null,
+    upsetOfYear:upsetFight?{fA:upsetFight.result.winnerId,fB:upsetFight.result.loserId}:null,
+    dudOfYear:dudFight?{fA:dudFight.fighterA,fB:dudFight.fighterB}:null,
   });
   STATE.meta.lastAwardYear=awardYear;
   return true;
@@ -5186,6 +5492,8 @@ function openAwardsCeremony(year, onClose){
   const koHtml = row('💥','KO del Año','#ef5350', a.koOfYear?`${nameOf(a.koOfYear.fA)} def. ${nameOf(a.koOfYear.fB)} · R${a.koOfYear.round} ${a.koOfYear.time}`:null);
   const subHtml = row('🤼','Sumisión del Año','#ce93d8', a.subOfYear?`${nameOf(a.subOfYear.fA)} def. ${nameOf(a.subOfYear.fB)} · R${a.subOfYear.round} ${a.subOfYear.time}`:null);
   const potyHtml = row('⭐','Actuación del Año','#82b1ff', a.performanceOfYear?`${nameOf(a.performanceOfYear.fA)} vs ${nameOf(a.performanceOfYear.fB)}`:null);
+  const upsetHtml = row('😱','Sorpresa del Año','#ff7043', a.upsetOfYear?`${nameOf(a.upsetOfYear.fA)} sorprende a ${nameOf(a.upsetOfYear.fB)}`:null);
+  const dudHtml = row('😴','Decepción del Año','#78909c', a.dudOfYear?`${nameOf(a.dudOfYear.fA)} vs ${nameOf(a.dudOfYear.fB)} — la pelea más hypeada que decepcionó`:null);
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-bg" id="modalBg">
     <div class="modal" style="max-width:480px;text-align:center">
@@ -5194,7 +5502,7 @@ function openAwardsCeremony(year, onClose){
       </div>
       ${fOf?`<div style="margin-bottom:10px">${avatarHtml(fOf,72)}</div>`:''}
       <div style="text-align:left">
-        ${fotyHtml}${fightHtml}${koHtml}${subHtml}${potyHtml}
+        ${fotyHtml}${fightHtml}${koHtml}${subHtml}${potyHtml}${upsetHtml}${dudHtml}
       </div>
       <button class="btn primary full" id="awardsCeremonyNext" style="margin-top:8px;padding:12px">Continuar →</button>
     </div>
@@ -5331,7 +5639,17 @@ function finishEvent(ev){
     });
   });
   STATE.meta.budget=(STATE.meta.budget||0)+eventRevenue-totalPurses;
-  ev._finance={revenue:eventRevenue, purses:totalPurses, bonusPayouts:totalBonusPayouts, net:eventRevenue-totalPurses};
+  recordBudgetTx(eventRevenue-totalPurses, `Evento: ${fName(ev)}`, ev.date);
+  // Compras PPV: cifra de cara al jugador (no forma parte del dinero real del negocio), con la
+  // misma variación por cómo sale el combate principal — un main event soso vende menos.
+  let estBuys = estimateEventBuys(ev);
+  const mainResult = ev.card[0]?.result;
+  if(mainResult){
+    estBuys *= 0.75 + Math.random()*0.5;
+    if(mainResult.method==='Decisión' && mainResult.decType==='Unánime') estBuys *= 0.9;
+    if(mainResult.isFOTN) estBuys *= 1.1;
+  }
+  ev._finance={revenue:eventRevenue, purses:totalPurses, bonusPayouts:totalBonusPayouts, net:eventRevenue-totalPurses, buys:Math.round(estBuys)};
   const net=eventRevenue-totalPurses;
   logEvent(`💰 ${fName(ev)}: ingresos $${eventRevenue.toLocaleString()} − bolsas $${totalPurses.toLocaleString()} = ${net>=0?'+':''}$${net.toLocaleString()}`);
 
@@ -5412,7 +5730,7 @@ function showEventSummary(ev, completedFights){
       <span style="font-size:1.5rem">${titleIcon(t)}</span>
       <div>
         <div style="font-weight:800;color:#d4af37">${fName(w)} ${newChamp&&ft.result.winnerId!==t.holderId?'🆕 NUEVO CAMPEÓN':''}</div>
-        <div style="font-size:.75rem;color:#aaa">${fName(t)}${ft.isInterim?' (Interino)':''} · def. ${l?.name||'?'} por ${ft.result.method} R${ft.result.round}</div>
+        <div style="font-size:.75rem;color:#aaa">${fName(t)}${ft.isInterim?' (Interino)':''} · def. ${l?.name||'?'} por ${methodLabel(ft.result)} R${ft.result.round}</div>
       </div>
     </div>`;
   }).join('');
@@ -5429,6 +5747,11 @@ function showEventSummary(ev, completedFights){
     const streak = (w?.momentum||0);
     const methodColor = ft.result.method==='KO/TKO'?'#ef5350':ft.result.method==='Sumisión'?'#ce93d8':'#90caf9';
     const rivalry = getRivalryFights(ft.fighterA,ft.fighterB);
+    const winnerIsA = ft.result.winnerId===ft.fighterA;
+    const scorecardsHtml = (ft.result.judgeScores&&ft.result.judgeScores.length) ? ft.result.judgeScores.map(jc=>{
+      const wScore = winnerIsA?jc.totalA:jc.totalB, lScore = winnerIsA?jc.totalB:jc.totalA;
+      return `${wScore}-${lScore}`;
+    }).join(' · ') : null;
     return `
     <div style="padding:10px 0;border-bottom:1px solid var(--line);${isMain?'background:rgba(212,175,55,.04);margin:0 -10px;padding:10px':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -5448,8 +5771,9 @@ function showEventSummary(ev, completedFights){
           </div>
         </div>
         <div style="text-align:right;min-width:90px">
-          <div style="font-size:.78rem;font-weight:700;color:${methodColor}">${ft.result.method}</div>
+          <div style="font-size:.78rem;font-weight:700;color:${methodColor}">${methodLabel(ft.result)}</div>
           <div style="font-size:.72rem;color:#666">R${ft.result.round} · ${ft.result.time}</div>
+          ${scorecardsHtml?`<div style="font-size:.68rem;color:#666">📋 ${scorecardsHtml}</div>`:''}
         </div>
       </div>
     </div>`;
@@ -5473,6 +5797,10 @@ function showEventSummary(ev, completedFights){
       <!-- Cuerpo SCROLLABLE -->
       <div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">
 
+        ${ev._finance?`<div style="display:flex;justify-content:space-around;text-align:center;padding:10px 16px;border-bottom:1px solid #1a1a1a">
+          <div><div style="font-size:.95rem;font-weight:800;color:#82b1ff">📺 ${(ev._finance.buys||0).toLocaleString()}</div><div style="font-size:.6rem;color:#666;text-transform:uppercase">Compras PPV</div></div>
+          <div><div style="font-size:.95rem;font-weight:800;color:${ev._finance.net>=0?'#69f0ae':'#ef5350'}">${ev._finance.net>=0?'+':''}$${ev._finance.net.toLocaleString()}</div><div style="font-size:.6rem;color:#666;text-transform:uppercase">Beneficio neto</div></div>
+        </div>`:''}
         ${champChanges?`<div style="background:rgba(212,175,55,.08);border-bottom:1px solid rgba(212,175,55,.2);padding:12px 16px">${champChanges}</div>`:''}
 
         <div style="padding:0 16px 8px">
@@ -5597,7 +5925,7 @@ function tplChampionTree(tid){
     ev.card.filter(ft=>ft.titleId===tid&&ft.result).forEach(ft=>{
       const w=STATE.fighters.find(x=>x.id===ft.result.winnerId);
       const l=STATE.fighters.find(x=>x.id===ft.result.loserId);
-      if(w&&l) chain.push({w,l,method:ft.result.method,round:ft.result.round,date:ev.date,evName:ev.name,isInterim:ft.isInterim});
+      if(w&&l) chain.push({w,l,method:ft.result.method,decType:ft.result.decType,round:ft.result.round,date:ev.date,evName:ev.name,isInterim:ft.isInterim});
     });
   });
   if(!chain.length) return '<p class="muted">Aún sin combates titulares simulados para este cinturón.</p>';
@@ -5611,7 +5939,7 @@ function tplChampionTree(tid){
         <div style="width:10px;height:10px;border-radius:50%;background:${fighterColor(c.w.id)};flex-shrink:0;position:relative;left:-5px"></div>
         <div style="flex:1">
           <div style="font-size:.82rem;font-weight:700;color:${fighterColor(c.w.id)}" class="clickable" data-id="${c.w.id}">${fName(c.w)}${c.isInterim?' 🥈':''}</div>
-          <div style="font-size:.7rem;color:#555">def. <span class="clickable" data-id="${c.l.id}" style="cursor:pointer">${fName(c.l)}</span> · ${methodIcon(c.method)} <span style="color:${methodColor(c.method)}">${c.method}</span> R${c.round} · ${fmtDate(c.date)}</div>
+          <div style="font-size:.7rem;color:#555">def. <span class="clickable" data-id="${c.l.id}" style="cursor:pointer">${fName(c.l)}</span> · ${methodIcon(c.method)} <span style="color:${methodColor(c.method)}">${methodAbbr(c)}</span> R${c.round} · ${fmtDate(c.date)}</div>
         </div>
       </div>
     </div>`).join('')}
@@ -5728,7 +6056,7 @@ function tplComparator(){
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.78rem">
           <span style="font-weight:700;color:${won?'#e53935':'#1565c0'}">${won?fName(fA):fName(fB)}</span>
           <div style="text-align:center">
-            <div style="color:${mc};font-weight:700;font-size:.72rem">${f.method}</div>
+            <div style="color:${mc};font-weight:700;font-size:.72rem">${methodAbbr(f)}</div>
             <div style="color:#555;font-size:.65rem">R${f.round} · ${f.time} · ${f.date?.slice(0,7)||''}</div>
           </div>
           <span style="color:#555">${won?fName(fB):fName(fA)}</span>
@@ -6028,6 +6356,7 @@ function tplStats(){
   ${block('Más sumisiones recibidas UFC',all.slice().sort((a,b)=>(b.record.ufcSubLosses||0)-(a.record.ufcSubLosses||0)),f=>f.record.ufcSubLosses||0)}
   ${block('Más decisiones perdidas UFC',all.slice().sort((a,b)=>(b.record.ufcDecLosses||0)-(a.record.ufcDecLosses||0)),f=>f.record.ufcDecLosses||0)}
   ${block('Más finalizaciones recibidas UFC',all.slice().sort((a,b)=>((b.record.ufcKoLosses||0)+(b.record.ufcSubLosses||0))-((a.record.ufcKoLosses||0)+(a.record.ufcSubLosses||0))),f=>(f.record.ufcKoLosses||0)+(f.record.ufcSubLosses||0),'💀')}
+  ${block('Más fallos de peso',all.filter(f=>f.missedWeightCount).slice().sort((a,b)=>(b.missedWeightCount||0)-(a.missedWeightCount||0)),f=>f.missedWeightCount||0,'⚖️')}
 
   <h3 style="margin:12px 8px 4px">🏆 Récords en combates por el título</h3>
   ${(()=>{
@@ -6243,7 +6572,7 @@ function tplDivisions(){
     return `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #111">
       <div class="clickable" data-id="${w.id}" style="flex:1;text-align:right;font-size:.78rem;font-weight:700;cursor:pointer">${w.name}</div>
       <div style="text-align:center;min-width:80px">
-        <div style="font-size:.6rem;color:${mc};font-weight:700">${e.method}</div>
+        <div style="font-size:.6rem;color:${mc};font-weight:700">${methodAbbr(e)}</div>
         <div style="font-size:.58rem;color:#555">R${e.round} · ${e.time||''}</div>
         <div style="font-size:.56rem;color:#444">${e.date?.slice(0,7)||''}</div>
       </div>
@@ -6472,6 +6801,7 @@ function bindScout(){
       c.division=divId; c.status='active'; c._scoutExpires=null;
       if(!c.contract) c.contract=makeContract(generalScore(c), c.reputation);
       STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
+      recordBudgetTx(-signingCost, `Fichaje de ${fName(c)} (Scouting)`);
       if(!STATE.fighters.find(x=>x.id===c.id)) STATE.fighters.push(c);
       STATE.scoutCandidates=(STATE.scoutCandidates||[]).filter(x=>x.id!==c.id);
       if(!c.debut) c.debut=STATE.meta.currentDate;
@@ -7264,7 +7594,10 @@ function bindEditor(){
   // Guardar presupuesto
   const saveBudgetBtn = document.getElementById('saveBudgetBtn');
   if(saveBudgetBtn) saveBudgetBtn.onclick=()=>{
+    const prevBudget = STATE.meta.budget||0;
     STATE.meta.budget = parseInt(document.getElementById('fld_budget').value)||0;
+    const delta = STATE.meta.budget-prevBudget;
+    if(delta!==0) recordBudgetTx(delta, 'Ajuste manual (Editor)');
     saveLocal(); toast('Presupuesto guardado ✅');
   };
 
@@ -7581,6 +7914,23 @@ function tplSettings(){
     <p class="muted" id="ghStatus"></p>
   </div>
   <div class="card">
+    <h3>💾 Guardado rápido (slots locales)</h3>
+    <p class="muted" style="font-size:.75rem">Guarda hasta 3 copias de tu partida en este navegador, para volver atrás sin depender de exportar/importar ficheros.</p>
+    ${SAVE_SLOTS.map(n=>{
+      const info=getSlotInfo(n);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a1a">
+        <div>
+          <div style="font-weight:700;font-size:.85rem">Slot ${n}</div>
+          ${info?`<div class="muted" style="font-size:.7rem">${fmtDate(info.date)} · $${info.budget.toLocaleString()} · ${info.fighterCount} peleadores${info.savedAt?' · guardado '+new Date(info.savedAt).toLocaleString():''}</div>`:'<div class="muted" style="font-size:.7rem">Vacío</div>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn small primary saveSlotBtn" data-slot="${n}">Guardar</button>
+          ${info?`<button class="btn small loadSlotBtn" data-slot="${n}">Cargar</button><button class="btn small danger clearSlotBtn" data-slot="${n}">✕</button>`:''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>
+  <div class="card">
     <h3>Datos locales</h3>
     <div class="row">
       <button class="btn full" id="newGameBtn">🔄 Nueva partida (resetear con 2 por categoría)</button>
@@ -7601,6 +7951,30 @@ function tplSettings(){
   </div>`;
 }
 function bindSettings(){
+  // Slots de guardado local
+  document.querySelectorAll('.saveSlotBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const n=btn.dataset.slot;
+      const info=getSlotInfo(n);
+      if(info && !confirm(`El Slot ${n} ya tiene una partida guardada (${fmtDate(info.date)}). ¿Sobrescribir?`)) return;
+      saveToSlot(n); render(); toast(`Partida guardada en Slot ${n} ✅`);
+    };
+  });
+  document.querySelectorAll('.loadSlotBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const n=btn.dataset.slot;
+      if(!confirm(`¿Cargar la partida del Slot ${n}? Se perderá el progreso actual no guardado.`)) return;
+      if(loadFromSlot(n)) toast(`Partida cargada desde Slot ${n} ✅`);
+    };
+  });
+  document.querySelectorAll('.clearSlotBtn').forEach(btn=>{
+    btn.onclick=e=>{
+      e.stopPropagation();
+      const n=btn.dataset.slot;
+      if(!confirm(`¿Vaciar el Slot ${n}? Esta acción no se puede deshacer.`)) return;
+      clearSlot(n); render(); toast(`Slot ${n} vaciado`);
+    };
+  });
   // Notificaciones
   const notifMap={notif_lesion:'injury',notif_sancion:'sanction',notif_retiro:'retire',notif_titulo:'title',notif_premio:'award',notif_milestone:'milestone'};
   Object.entries(notifMap).forEach(([id,cat])=>{
