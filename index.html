@@ -221,7 +221,7 @@ let UI = {tab:'dashboard', rosterFilter:'ALL', rosterSearch:'', selectedFighter:
 
 function freshState(){
   return {
-    meta:{ currentDate: '2026-01-15', eventSeq:1, fightSeq:1, leagueName:'UFC' },
+    meta:{ currentDate: '2026-01-15', eventSeq:1, fightSeq:1, leagueName:'UFC', budget: 5000000 },
     divisions: DIVISIONS.map(d=>({...d, championId:null, interimChampionId:null})),
     titles: [],
     fighters: [],
@@ -235,7 +235,9 @@ function freshState(){
     atpPoints: {},
     rankingHistory: [],
     statsHistory: {},
-    milestonesReached: []
+    milestonesReached: [],
+    rivalPromotions: [],  // ligas rivales — ver seedRivalPromotions()
+    pendingNegotiations: [] // [{fighterId, rivalOfferSalary}] avisos de contrato a renovar
   };
 }
 
@@ -274,7 +276,19 @@ function makeFighter(divisionId, gender){
     fightHistory:[], // fightIds
     lastEventSeq:null,
     hof:false,
-    rankScore:0
+    rankScore:0,
+    contract: makeContract()
+  };
+}
+
+// ── Contrato: bolsa por pelea, peleas restantes, y "personalidad negociadora" ──
+function makeContract(){
+  return {
+    salary: randi(8,40)*1000,       // bolsa base por combate
+    finishBonus: randi(5,20)*1000,  // extra si gana por KO/Sumisión
+    fightsLeft: randi(2,5),         // combates restantes en el contrato actual
+    demandLevel: randi(20,80),      // 0-100: cuánto exige/sube el pulso al negociar
+    loyalty: randi(20,80),          // 0-100: resistencia a irse por dinero a una rival
   };
 }
 
@@ -378,7 +392,8 @@ function makeRealFighter(rf){
     titleReigns:[], fightHistory:[], lastEventSeq:null,
     hof: false,
     rankScore:0,
-    _tier: rf.tier
+    _tier: rf.tier,
+    contract: makeContract()
   };
 }
 function STAT_KEYS_BONUS_CAP(tier){ return {legend:9, elite:5, contender:2, veteran:3}[tier]||1; }
@@ -432,6 +447,7 @@ function seedFighters(){
       if(f.chinDamage==null) f.chinDamage = Math.min((f.record.ufcKoLosses||0)*2, 15);
       // Racha empieza siempre en 0 al cargar el estado inicial
       f.momentum = 0;
+      if(!f.contract) f.contract = makeContract();
     });
   } else {
     STATE.fighters = REAL_FIGHTERS.map(makeRealFighter);
@@ -462,6 +478,95 @@ function seedFighters(){
   STATE.fighters.forEach(f=>{ if(!STATE.statsHistory[f.id]||STATE.statsHistory[f.id].length===0) saveStatSnapshot(f, STATE.meta.currentDate, 'Inicio'); });
   logEvent(`Liga inicializada con ${STATE.fighters.length} peleadores.`);
   saveLocal();
+}
+
+/* ====================== PROMOTORAS RIVALES ====================== */
+// Peleador "ligero" de una promotora rival: solo lo justo para correr por simulateFight()
+// y llevar un récord/campeones propios — no participa en el resto de sistemas del jugador.
+function makeRivalFighter(divisionId){
+  const first=pick(FIRST_M), last=pick(LAST);
+  const age=randi(21,34);
+  const dob=`${2026-age}-${String(randi(1,12)).padStart(2,'0')}-${String(randi(1,28)).padStart(2,'0')}`;
+  const stats={}; STAT_KEYS.forEach(([k])=>stats[k]=randi(45,85));
+  return {
+    id: uid('RF'), name:`${first} ${last}`, division:divisionId, dob,
+    stats, fightStyle: pick(Object.keys(FIGHT_STYLES)), chinDamage:0,
+    record:{wins:0,losses:0}, longevity: randi(70,100),
+  };
+}
+const RIVAL_PROMOTION_SEEDS = [
+  {name:'Apex Fighting Championship', short:'AFC'},
+  {name:'Global Combat League', short:'GCL'},
+  {name:'Iron Cage Federation', short:'ICF'},
+];
+function seedRivalPromotions(){
+  STATE.rivalPromotions = RIVAL_PROMOTION_SEEDS.map(rn=>{
+    const fighters=[];
+    DIVISIONS.forEach(d=>{ for(let i=0;i<randi(4,7);i++) fighters.push(makeRivalFighter(d.id)); });
+    const titles = DIVISIONS.map(d=>{
+      const pool=fighters.filter(f=>f.division===d.id);
+      const champ = pool.length? pick(pool): null;
+      return {divisionId:d.id, holderId:champ?champ.id:null, holderName:champ?champ.name:null};
+    });
+    return {
+      id: uid('RP'), name:rn.name, short:rn.short,
+      prestige: randi(25,55), budget: randi(1,4)*1000000,
+      fighters, titles, recentEvents:[], eventSeq:1,
+    };
+  });
+}
+// Simula un evento interno de una promotora rival: 2-4 combates entre peleadores propios
+// de la misma división, reutilizando el motor real (simulateFight). Actualiza récords,
+// campeones propios y prestigio — no toca nada del roster del jugador.
+function simulateRivalEvent(promo, date){
+  const byDiv = {};
+  promo.fighters.forEach(f=>{ (byDiv[f.division]=byDiv[f.division]||[]).push(f); });
+  const candidateDivs = Object.keys(byDiv).filter(d=>byDiv[d].length>=2);
+  if(!candidateDivs.length) return null;
+  const numFights = randi(2,4);
+  const usedIds = new Set();
+  const fights = [];
+  for(let i=0;i<numFights;i++){
+    const div = pick(candidateDivs);
+    const pool = byDiv[div].filter(f=>!usedIds.has(f.id));
+    if(pool.length<2) continue;
+    const a = pick(pool);
+    const b = pick(pool.filter(f=>f.id!==a.id));
+    usedIds.add(a.id); usedIds.add(b.id);
+    const title = promo.titles.find(t=>t.divisionId===div);
+    const isTitleFight = title && (title.holderId===a.id || title.holderId===b.id) && Math.random()<0.4;
+    const r = simulateFight(a, b, {rounds: isTitleFight?5:3});
+    const winner = r.winner.id===a.id? a : b, loser = r.winner.id===a.id? b : a;
+    winner.record.wins++; loser.record.losses++;
+    if(isTitleFight && title.holderId!==winner.id){ title.holderId=winner.id; title.holderName=winner.name; }
+    else if(title && !title.holderId){ title.holderId=winner.id; title.holderName=winner.name; }
+    fights.push({aName:a.name,bName:b.name,winnerName:winner.name,method:methodLabel(r),round:r.round,divisionId:div,titleFight:!!isTitleFight});
+  }
+  if(!fights.length) return null;
+  promo.eventSeq++;
+  const ev = {id:uid('RPEV'), name:`${promo.short} ${promo.eventSeq}`, date, fights};
+  promo.recentEvents.unshift(ev);
+  if(promo.recentEvents.length>15) promo.recentEvents.length=15;
+  // Prestigio: pequeña deriva, más si hubo pelea de título
+  promo.prestige = clamp(promo.prestige + (fights.some(f=>f.titleFight)?randi(1,3):randi(-1,2)), 5, 99);
+  promo.budget += randi(20,80)*1000;
+  return ev;
+}
+// Avanza todas las promotoras rivales un "turno" — se llama cada vez que el jugador
+// termina uno de sus propios eventos, para que el mundo rival progrese al mismo ritmo.
+function advanceRivalPromotions(date){
+  (STATE.rivalPromotions||[]).forEach(promo=>{ if(Math.random()<0.7) simulateRivalEvent(promo, date); });
+}
+// ¿Hay una promotora rival interesada en robar a este peleador al expirar su contrato?
+// Devuelve null (nadie pica) o {promoId, promoName, amount} — la oferta que usará de palanca en la negociación.
+function computeRivalInterest(f){
+  if(!STATE.rivalPromotions||!STATE.rivalPromotions.length) return null;
+  const interested = STATE.rivalPromotions.filter(()=>Math.random()<0.35);
+  if(!interested.length) return null;
+  const rp = pick(interested);
+  const base = (f.contract?.salary)||20000;
+  const amount = Math.round(base*(1.05+Math.random()*0.35)/1000)*1000;
+  return {promoId:rp.id, promoName:rp.name, amount};
 }
 
 /* ====================== PERSISTENCIA LOCAL ====================== */
@@ -1515,6 +1620,18 @@ function generalScore(f){
   return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
 }
 
+// Flecha de tendencia (↑/↓) según la progresión reciente del nivel general (STATE.statsHistory)
+function fighterTrend(f){
+  const hist = STATE.statsHistory?.[f.id];
+  if(!hist || hist.length<2) return '';
+  const cur = hist[hist.length-1].general;
+  const prev = hist[Math.max(0,hist.length-4)].general;
+  const delta = cur-prev;
+  if(delta>=2) return ` <span style="color:#69f0ae;font-size:.72rem" title="Subiendo (+${delta})">▲</span>`;
+  if(delta<=-2) return ` <span style="color:#ef5350;font-size:.72rem" title="Bajando (${delta})">▼</span>`;
+  return '';
+}
+
 // Últimos N combates resueltos de un peleador (más reciente primero), con su rival y si ganó
 function recentResolvedFights(f, n){
   const history = [...(f.fightHistory||[])].reverse();
@@ -1814,7 +1931,8 @@ function vacateTitleForInjury(titleId){
 const TABS = [
   ['dashboard','Inicio'],['roster','Roster'],['rankings','Rankings'],['titles','Títulos'],
   ['divisions','Divisiones'],['events','Eventos'],['stats','Estadísticas'],['activity','Actividad'],['hof','Hall of Fame'],
-  ['scout','Scouting'],['rivalries','Rivalidades'],['infirmary','Enfermería'],['compare','Comparar'],['rankHistory','Ranking hist.'],['editor','Editor'],['guide','Guía'],['settings','GitHub']
+  ['scout','Scouting'],['rivalries','Rivalidades'],['infirmary','Enfermería'],['compare','Comparar'],['rankHistory','Ranking hist.'],
+  ['promotions','Promotoras'],['editor','Editor'],['guide','Guía'],['settings','GitHub']
 ];
 
 function renderShell(){
@@ -1846,6 +1964,7 @@ function renderTab(){
     case 'guide': app.innerHTML=tplGuide(); break;
     case 'compare': app.innerHTML=tplComparator(); bindComparator(); break;
     case 'rankHistory': app.innerHTML=tplRankingHistory(); bindRankingHistory(); break;
+    case 'promotions': app.innerHTML=tplPromotions(); bindPromotions(); break;
     case 'editor': app.innerHTML=tplEditor(); bindEditor(); break;
     case 'settings': app.innerHTML=tplSettings(); bindSettings(); break;
   }
@@ -1895,6 +2014,26 @@ function tplDashboard(){
       <div style="background:#0d0d0d;border-radius:6px;padding:6px 4px"><div style="font-size:1.1rem;font-weight:800">${active}</div><div style="font-size:.62rem;color:#555">Activos</div></div>
     </div>
   </div>
+
+  <!-- Presupuesto -->
+  <div class="card" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+    <div><div style="font-size:.65rem;color:#666;text-transform:uppercase;letter-spacing:1px">💰 Presupuesto</div>
+    <div style="font-size:1.2rem;font-weight:900;color:${(STATE.meta.budget||0)>0?'#69f0ae':'#ef5350'}">$${(STATE.meta.budget||0).toLocaleString()}</div></div>
+    <button class="btn small" onclick="UI.tab='editor';render()" style="font-size:.7rem">Gestionar →</button>
+  </div>
+
+  <!-- Contratos por renovar -->
+  ${(STATE.pendingNegotiations||[]).length?`
+  <div class="card" style="padding:10px 14px;border-left:3px solid #69f0ae">
+    <div style="font-size:.65rem;color:#69f0ae;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">💼 Contratos por renovar (${STATE.pendingNegotiations.length})</div>
+    ${STATE.pendingNegotiations.map(n=>{
+      const f=STATE.fighters.find(x=>x.id===n.fighterId); if(!f) return '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0">
+        <span style="font-size:.78rem">${fName(f)}</span>
+        <button class="btn small primary negotiateBtn" data-id="${f.id}" style="font-size:.7rem">Negociar</button>
+      </div>`;
+    }).filter(Boolean).join('')}
+  </div>`:''}
 
   <!-- Panel de cinturones visuales -->
   <div class="card" style="padding:10px 14px">
@@ -2002,6 +2141,9 @@ function bindDashboard(){
     STATE.meta.currentDate = document.getElementById('dashDate').value || STATE.meta.currentDate;
     saveLocal(); render(); toast('Fecha actualizada');
   };
+  document.querySelectorAll('.negotiateBtn').forEach(btn=>{
+    btn.onclick=e=>{ e.stopPropagation(); openContractNegotiation(btn.dataset.id); };
+  });
 }
 
 /* ====================== RIVALIDADES ====================== */
@@ -2131,6 +2273,56 @@ function tplRivalries(){
   }).join('')}`;
 }
 
+/* ====================== PROMOTORAS RIVALES (vista) ====================== */
+// Prestigio del jugador — comparado con el de cada rival en el panorama de mercado
+function playerPrestige(){
+  const active = STATE.fighters.filter(f=>f.status==='active');
+  if(!active.length) return 30;
+  const avgRep = active.reduce((s,f)=>s+(f.reputation||50),0)/active.length;
+  const eventBonus = Math.min(20, STATE.events.filter(e=>e.status==='completed').length*0.5);
+  return Math.round(clamp(avgRep*0.6+eventBonus+20, 5, 99));
+}
+function tplPromotions(){
+  const rivals = STATE.rivalPromotions||[];
+  const myPrestige = playerPrestige();
+  const maxPrestige = Math.max(myPrestige, ...rivals.map(r=>r.prestige), 1);
+  const bar=(val,color)=>`<div style="height:8px;border-radius:4px;background:var(--bg);overflow:hidden;flex:1"><div style="width:${Math.round(val/maxPrestige*100)}%;height:100%;background:${color}"></div></div>`;
+  return `
+  <div class="card">
+    <h2>🏢 Panorama de promotoras</h2>
+    <p class="muted">Cuota de prestigio comparada — más reputación media en tu roster activo y más eventos disputados suben tu prestigio.</p>
+    <div style="display:flex;align-items:center;gap:8px;margin:10px 0 6px">
+      <span style="width:110px;font-size:.78rem;font-weight:700;color:var(--red)">${STATE.meta.leagueName} (tú)</span>
+      ${bar(myPrestige,'var(--red)')}
+      <span style="width:30px;text-align:right;font-size:.78rem">${myPrestige}</span>
+    </div>
+    ${rivals.map(rp=>`<div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+      <span style="width:110px;font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${rp.name}">${rp.short||rp.name}</span>
+      ${bar(rp.prestige,'var(--blue)')}
+      <span style="width:30px;text-align:right;font-size:.78rem">${rp.prestige}</span>
+    </div>`).join('')}
+  </div>
+  ${rivals.length===0?'<div class="card"><p class="muted">No hay promotoras rivales todavía. Puedes crear una desde el Editor.</p></div>':''}
+  ${rivals.map(rp=>`
+  <div class="card">
+    <div class="section-title"><h3>${rp.name}</h3><span class="muted" style="font-size:.72rem">${rp.fighters.length} peleadores · $${(rp.budget||0).toLocaleString()}</span></div>
+    <h4>Campeones actuales</h4>
+    <div class="grid2" style="font-size:.75rem;margin-bottom:8px">
+      ${rp.titles.filter(t=>t.holderName).map(t=>`<div>${divName(t.divisionId)}: <b>${t.holderName}</b></div>`).join('')||'<div class="muted">Sin campeones aún.</div>'}
+    </div>
+    <h4>Últimos eventos</h4>
+    ${rp.recentEvents.length===0?'<p class="muted" style="font-size:.75rem">Sin eventos disputados todavía.</p>':rp.recentEvents.slice(0,5).map(rev=>`
+      <div class="fightcard-item">
+        <div class="section-title"><b>${rev.name}</b><span class="muted" style="font-size:.7rem">${fmtDate(rev.date)}</span></div>
+        ${rev.fights.map(ft=>`<div style="font-size:.72rem;padding:2px 0">${ft.aName} vs ${ft.bName} — <b>${ft.winnerName}</b> (${ft.method} R${ft.round})${ft.titleFight?' 🏆':''}</div>`).join('')}
+      </div>`).join('')}
+  </div>`).join('')}
+  `;
+}
+function bindPromotions(){
+  // La gestión (crear/editar/mover peleadores) vive en el Editor — esta pestaña es solo de consulta.
+}
+
 /* ====================== ROSTER ====================== */
 function fighterStatusPill(f){
   if(f.status==='retired') return `<span class="pill retired">Retirado</span>`;
@@ -2166,7 +2358,7 @@ function tplRoster(){
     <table><thead><tr><th>Nombre</th><th>Div.</th><th>Récord</th><th>Estado</th></tr></thead>
     <tbody>
     ${list.map(f=>`<tr class="clickable" data-id="${f.id}">
-      <td>${fName(f)}${f.hof?' <span class="pill hof">HOF</span>':''}</td>
+      <td>${fName(f)}${fighterTrend(f)}${f.hof?' <span class="pill hof">HOF</span>':''}</td>
       <td style="font-size:.72rem">${divName(f.division)}</td>
       <td>${f.record.wins}-${f.record.losses}-${f.record.draws}</td>
       <td>${fighterStatusPill(f)}</td>
@@ -2409,12 +2601,16 @@ function openFighterModal(fid, context){
   };
   const signBtn=document.getElementById('signFighter');
   if(signBtn) signBtn.onclick=()=>{
+    const signingCost=Math.round((10000+generalScore(f)*600)/1000)*1000;
+    if((STATE.meta.budget||0)<signingCost){ toast(`❌ Presupuesto insuficiente (necesitas $${signingCost.toLocaleString()})`); return; }
     f.status='active'; f._scoutExpires=null;
+    if(!f.contract) f.contract=makeContract();
+    STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
     // Remove from scoutCandidates if present
     if(STATE.scoutCandidates) STATE.scoutCandidates=STATE.scoutCandidates.filter(c=>c.id!==f.id);
     if(!f.debut) f.debut=STATE.meta.currentDate;
-    logEvent(`✅ ${fName(f)} fichado y añadido al roster activo.`);
-    saveLocal(); closeModal(); render(); toast(`${fName(f)} fichado ✅`);
+    logEvent(`✅ ${fName(f)} fichado y añadido al roster activo — coste de fichaje $${signingCost.toLocaleString()}.`);
+    saveLocal(); closeModal(); render(); toast(`${fName(f)} fichado ✅ (-$${signingCost.toLocaleString()})`);
   };
 }
 function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
@@ -2431,7 +2627,7 @@ function tplRankings(){
   const rankRow=(f,i,extra='')=>`<div class="clickable fightcard-item" data-id="${f.id}" style="display:flex;align-items:center;gap:8px;padding:5px 0">
     <span style="font-size:.72rem;color:#555;min-width:22px;text-align:right">#${i+1}</span>
     ${avatarHtml(f,28)}
-    <span style="flex:1;font-size:.8rem;font-weight:${i<3?'700':'400'}">${fName(f)}${championBadge(f.id)}</span>
+    <span style="flex:1;font-size:.8rem;font-weight:${i<3?'700':'400'}">${fName(f)}${fighterTrend(f)}${championBadge(f.id)}</span>
     <span style="font-size:.7rem;color:#555">${f.record.wins}-${f.record.losses}</span>
     ${extra}
   </div>`;
@@ -2458,7 +2654,7 @@ function bindRankings(){
   const rankRow=(f,i)=>`<div class="clickable fightcard-item" data-id="${f.id}" style="display:flex;align-items:center;gap:8px;padding:5px 0">
     <span style="font-size:.72rem;color:#555;min-width:22px;text-align:right">#${i+1}</span>
     ${avatarHtml(f,28)}
-    <span style="flex:1;font-size:.8rem;font-weight:${i<3?'700':'400'}">${fName(f)}${championBadge(f.id)}</span>
+    <span style="flex:1;font-size:.8rem;font-weight:${i<3?'700':'400'}">${fName(f)}${fighterTrend(f)}${championBadge(f.id)}</span>
     <span style="font-size:.7rem;color:#555">${f.record.wins}-${f.record.losses}</span>
     <span style="font-size:.68rem;color:#888">${f.rankScore.toFixed(1)}</span>
   </div>`;
@@ -3196,6 +3392,95 @@ function avatarHtml(f, size=90, dim=false){
     return `<img src="${f.imageUrl}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;object-position:50% 10%;flex-shrink:0;display:inline-block;vertical-align:middle;${dimStyle}" loading="lazy" onerror="this.style.display='none'">`;
   }
   return `<div style="width:${size}px;height:${size}px;border-radius:50%;overflow:hidden;flex-shrink:0;display:inline-block;vertical-align:middle;${dimStyle}">${proceduralAvatar(f, size)}</div>`;
+}
+
+/* ====================== NEGOCIACIÓN DE CONTRATOS ====================== */
+function openContractNegotiation(fighterId){
+  const f = STATE.fighters.find(x=>x.id===fighterId);
+  if(!f) return;
+  if(!f.contract) f.contract = makeContract();
+  const pending = (STATE.pendingNegotiations||[]).find(n=>n.fighterId===fighterId);
+  const rivalOffer = pending?.rivalOfferSalary || null;
+  const maxRounds = 3;
+  let round = 1;
+  let lastCounter = null;
+  let offer = { salary: f.contract.salary, finishBonus: f.contract.finishBonus, fightsLeft: 3 };
+
+  function desiredSalary(){
+    const rep=f.reputation||50, mom=f.momentum||0;
+    let base = 15000 + rep*400 + mom*3000;
+    base *= (1 + (f.contract.demandLevel||50)/250);
+    if(rivalOffer) base = Math.max(base, rivalOffer.amount*1.05);
+    return Math.round(base/1000)*1000;
+  }
+
+  function resolveFighterLeaves(){
+    STATE.pendingNegotiations = (STATE.pendingNegotiations||[]).filter(n=>n.fighterId!==fighterId);
+    if(rivalOffer){
+      const rp = STATE.rivalPromotions.find(x=>x.id===rivalOffer.promoId);
+      STATE.fighters = STATE.fighters.filter(x=>x.id!==fighterId);
+      if(rp) rp.fighters.push({id:f.id,name:f.name,division:f.division,dob:f.dob,stats:{...f.stats},fightStyle:f.fightStyle||'technical',chinDamage:f.chinDamage||0,record:{wins:f.record.wins||0,losses:f.record.losses||0},longevity:f.longevity||80});
+      logEvent(`💸 ${fName(f)} ficha por ${rivalOffer.promoName} tras no llegar a un acuerdo.`);
+      richToast(`${fName(f)} se marcha a ${rivalOffer.promoName}`,'💸','#ef5350',5000);
+    } else {
+      f.status='free_agent';
+      logEvent(`📄 ${fName(f)} queda como agente libre tras no renovar contrato.`);
+      richToast(`${fName(f)} queda libre — puedes re-ficharlo en Scouting`,'📄','#ffb74d',5000);
+    }
+    saveLocal(); closeModal(); render();
+  }
+
+  function renderNegotiation(){
+    const desired = desiredSalary();
+    document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-bg" id="modalBg">
+      <div class="modal">
+        <div class="section-title"><h3>💼 Negociación — ${fName(f)}</h3><button class="btn small closebtn" id="negClose">✕</button></div>
+        <p class="muted" style="font-size:.78rem">Ronda ${round}/${maxRounds} · Reputación ${f.reputation||50} · Racha ${f.momentum||0} · Exigencia ${f.contract.demandLevel}/100 · Lealtad ${f.contract.loyalty}/100</p>
+        ${rivalOffer?`<div class="fightcard-item" style="border-color:#ef5350"><b style="color:#ef5350">⚠️ ${rivalOffer.promoName}</b> le ha ofrecido <b>$${rivalOffer.amount.toLocaleString()}</b> por pelea.</div>`:''}
+        ${lastCounter?`<div class="fightcard-item">${fName(f)} pide <b>$${lastCounter.toLocaleString()}</b> por pelea para firmar.</div>`:''}
+        <label>Tu oferta — bolsa por pelea ($)</label>
+        <input type="number" step="1000" id="negSalary" value="${offer.salary}">
+        <label>Bonus por finalización ($)</label>
+        <input type="number" step="1000" id="negBonus" value="${offer.finishBonus}">
+        <label>Duración del contrato (peleas)</label>
+        <input type="number" min="1" max="10" id="negLength" value="${offer.fightsLeft}">
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary full" id="negSubmit">📨 Presentar oferta</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn danger full" id="negWalk">🚪 Dejarlo ir</button>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('negClose').onclick=closeModal;
+    document.getElementById('negWalk').onclick=()=>{
+      if(!confirm(`¿Dejar salir a ${fName(f)}?`)) return;
+      resolveFighterLeaves();
+    };
+    document.getElementById('negSubmit').onclick=()=>{
+      offer.salary = parseInt(document.getElementById('negSalary').value)||0;
+      offer.finishBonus = parseInt(document.getElementById('negBonus').value)||0;
+      offer.fightsLeft = clamp(parseInt(document.getElementById('negLength').value)||1,1,10);
+
+      const acceptThreshold = desired * (1 - (f.contract.loyalty||50)/500);
+      if(offer.salary >= acceptThreshold){
+        f.contract.salary = offer.salary;
+        f.contract.finishBonus = offer.finishBonus;
+        f.contract.fightsLeft = offer.fightsLeft;
+        STATE.pendingNegotiations = (STATE.pendingNegotiations||[]).filter(n=>n.fighterId!==fighterId);
+        logEvent(`✍️ ${fName(f)} renueva contrato: $${offer.salary.toLocaleString()}/pelea x ${offer.fightsLeft}.`);
+        richToast(`${fName(f)} firma la renovación ✅`,'✍️','#69f0ae',4000);
+        saveLocal(); closeModal(); render();
+        return;
+      }
+      if(round>=maxRounds){ resolveFighterLeaves(); return; }
+      lastCounter = Math.round(((offer.salary+desired)/2)/1000)*1000;
+      round++;
+      renderNegotiation();
+    };
+  }
+  renderNegotiation();
 }
 
 function openLiveFightViewer(ev){
@@ -4005,6 +4290,16 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   updateReputation(winner, fight.titleId?12: result.method!=='Decisión'?6:3);
   updateReputation(loser, fight.titleId?-8:-3);
   if(result.performance) winner.bonuses.performanceOfNight++;
+  // Contrato: consumir una pelea del contrato de ambos peleadores
+  [winner, loser].forEach(pf=>{
+    if(!pf.contract) pf.contract = makeContract();
+    pf.contract.fightsLeft = Math.max(0, (pf.contract.fightsLeft||0)-1);
+    if(pf.contract.fightsLeft<=0 && pf.status==='active' && !(STATE.pendingNegotiations||[]).some(n=>n.fighterId===pf.id)){
+      if(!STATE.pendingNegotiations) STATE.pendingNegotiations=[];
+      STATE.pendingNegotiations.push({fighterId:pf.id, rivalOfferSalary: computeRivalInterest(pf)});
+      logEvent(`💼 El contrato de ${fName(pf)} llega a su fin — hay que renegociar.`);
+    }
+  });
   // Rich toasts para eventos importantes
   if(winner.momentum>=5) richToast(`🔥 ${fName(winner)} encadena ${winner.momentum} victorias seguidas!`,'🔥','#82b1ff',3500);
   if(winner.record.losses===0 && winner.record.ufcLosses===0 && winner.record.wins>=5) richToast(`⚡ ${fName(winner)} sigue INVICTO (${winner.record.wins}-0)!`,'⚡','#a5d6a7',3500);
@@ -4344,6 +4639,30 @@ function finishEvent(ev){
   });
 
   ev.status='completed';
+
+  // ── ECONOMÍA: ingresos del evento (popularidad de las peleas) menos bolsas pagadas ──
+  let eventRevenue=0, totalPurses=0;
+  completedFights.forEach(ft=>{
+    const r=ft.result; if(!r) return;
+    const fA=STATE.fighters.find(x=>x.id===ft.fighterA), fB=STATE.fighters.find(x=>x.id===ft.fighterB);
+    if(!fA||!fB) return;
+    const avgRep=((fA.reputation||50)+(fB.reputation||50))/2;
+    let fightRevenue=30000+avgRep*900;
+    if(ft.titleId) fightRevenue*=1.8;
+    if(r.isFOTN) fightRevenue*=1.15;
+    eventRevenue+=Math.round(fightRevenue);
+    [fA,fB].forEach(pf=>{
+      if(!pf.contract) pf.contract=makeContract();
+      let purse=pf.contract.salary||0;
+      if(r.winnerId===pf.id && r.method!=='Decisión') purse+=(pf.contract.finishBonus||0);
+      totalPurses+=purse;
+    });
+  });
+  STATE.meta.budget=(STATE.meta.budget||0)+eventRevenue-totalPurses;
+  ev._finance={revenue:eventRevenue, purses:totalPurses, net:eventRevenue-totalPurses};
+  const net=eventRevenue-totalPurses;
+  logEvent(`💰 ${fName(ev)}: ingresos $${eventRevenue.toLocaleString()} − bolsas $${totalPurses.toLocaleString()} = ${net>=0?'+':''}$${net.toLocaleString()}`);
+
   STATE.meta.eventSeq++;
   evolveAttributes(ev.date);
   // Lesiones de entrenamiento (probabilidad baja)
@@ -4359,6 +4678,9 @@ function finishEvent(ev){
 
   // Scouting periódico (cada 3 eventos)
   if(STATE.meta.eventSeq % 3 === 0) generateScoutCandidates();
+
+  // Las promotoras rivales avanzan un turno al mismo ritmo que tú
+  advanceRivalPromotions(ev.date);
 
   refreshRankings();
   saveRankingSnapshot(ev.id, ev.date);
@@ -5433,13 +5755,17 @@ function bindScout(){
       e.stopPropagation();
       const c=STATE.scoutCandidates.find(x=>x.id===btn.dataset.id)||STATE.fighters.find(x=>x.id===btn.dataset.id);
       if(!c) return;
+      const signingCost=Math.round((10000+generalScore(c)*600)/1000)*1000;
+      if((STATE.meta.budget||0)<signingCost){ toast(`❌ Presupuesto insuficiente (necesitas $${signingCost.toLocaleString()})`); return; }
       const divSel=document.querySelector(`.scoutDivSel[data-id="${btn.dataset.id}"]`);
       const divId=divSel?divSel.value:(c.division||DIVISIONS[0].id);
       c.division=divId; c.status='active'; c._scoutExpires=null;
+      if(!c.contract) c.contract=makeContract();
+      STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
       if(!STATE.fighters.find(x=>x.id===c.id)) STATE.fighters.push(c);
       STATE.scoutCandidates=(STATE.scoutCandidates||[]).filter(x=>x.id!==c.id);
       if(!c.debut) c.debut=STATE.meta.currentDate;
-      logEvent(`✅ ${fName(c)} fichado para ${divName(divId)}.`);
+      logEvent(`✅ ${fName(c)} fichado para ${divName(divId)} — coste de fichaje $${signingCost.toLocaleString()}.`);
       // Análisis de scout narrativo
       const narrative = generateScoutNarrative(c, divId);
       logEvent(`📋 Informe de scouting: ${narrative}`);
@@ -5544,7 +5870,13 @@ function tplEditor(){
 
   ${f ? `<div class="card" id="bonusesForm">${tplBonusesForm(f)}</div>` : ''}
 
+  ${f ? `<div class="card" id="contractForm">${tplContractForm(f)}</div>` : ''}
+
   ${f ? `<div class="card" id="reignsForm">${tplReignsForm(f)}</div>` : ''}
+
+  <div class="card">${tplFinanceForm()}</div>
+
+  <div class="card">${tplRivalPromotionsEditor()}</div>
 
   <div class="card">
     <h3>🏆 Gestión de títulos</h3>
@@ -5723,6 +6055,81 @@ function tplBonusesForm(f){
     <div><label>Actuaciones de la Noche ⭐</label><input type="number" min="0" id="fld_potn" value="${f.bonuses.performanceOfNight||0}"></div>
   </div>
   <button class="btn primary full" id="saveBonusesBtn" style="margin-top:8px">Guardar bonos</button>
+  `;
+}
+
+function tplContractForm(f){
+  const c = f.contract||makeContract();
+  return `
+  <h3>💰 Contrato de ${fName(f)}</h3>
+  <div class="grid2">
+    <div><label>Bolsa base por combate ($)</label><input type="number" min="0" step="1000" id="fld_salary" value="${c.salary}"></div>
+    <div><label>Bonus por finalización ($)</label><input type="number" min="0" step="1000" id="fld_finishBonus" value="${c.finishBonus}"></div>
+  </div>
+  <div class="grid2">
+    <div><label>Peleas restantes en el contrato</label><input type="number" min="0" max="20" id="fld_fightsLeft" value="${c.fightsLeft}"></div>
+    <div><label>Exigencia al negociar (0-100)</label><input type="number" min="0" max="100" id="fld_demandLevel" value="${c.demandLevel}"></div>
+  </div>
+  <label>Lealtad (0-100) — resistencia a irse por dinero a una rival</label>
+  <input type="number" min="0" max="100" id="fld_loyalty" value="${c.loyalty}">
+  <button class="btn primary full" id="saveContractBtn" style="margin-top:8px">Guardar contrato</button>
+  `;
+}
+
+function tplFinanceForm(){
+  return `
+  <h3>💰 Finanzas de la promotora</h3>
+  <p class="muted">Presupuesto disponible para bolsas, fichajes y renovaciones.</p>
+  <label>Presupuesto ($)</label>
+  <input type="number" step="10000" id="fld_budget" value="${STATE.meta.budget||0}">
+  <button class="btn primary full" id="saveBudgetBtn" style="margin-top:8px">Guardar presupuesto</button>
+  `;
+}
+
+function tplRivalPromotionsEditor(){
+  const rivals = STATE.rivalPromotions||[];
+  return `
+  <h3>🏢 Promotoras rivales</h3>
+  <p class="muted" style="font-size:.78rem">Edita nombre, prestigio y presupuesto de cada rival, o mueve peleadores entre tu roster y el suyo.</p>
+  ${rivals.length===0?'<p class="muted">No hay promotoras rivales todavía.</p>':rivals.map(rp=>`
+    <div class="fightcard-item" data-rivalid="${rp.id}">
+      <div class="grid2">
+        <div><label>Nombre</label><input class="rivalNameFld" data-id="${rp.id}" value="${rp.name}"></div>
+        <div><label>Siglas</label><input class="rivalShortFld" data-id="${rp.id}" value="${rp.short||''}"></div>
+      </div>
+      <div class="grid2">
+        <div><label>Prestigio (0-99)</label><input type="number" min="0" max="99" class="rivalPrestigeFld" data-id="${rp.id}" value="${rp.prestige}"></div>
+        <div><label>Presupuesto ($)</label><input type="number" step="10000" class="rivalBudgetFld" data-id="${rp.id}" value="${rp.budget}"></div>
+      </div>
+      <div class="muted" style="font-size:.72rem;margin:4px 0">${rp.fighters.length} peleadores en su roster · ${rp.recentEvents.length} eventos disputados</div>
+      <div class="row">
+        <button class="btn small primary rivalSaveBtn" data-id="${rp.id}">💾 Guardar</button>
+        <button class="btn small danger rivalDeleteBtn" data-id="${rp.id}">✕ Eliminar promotora</button>
+      </div>
+    </div>`).join('')}
+  <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Nueva promotora rival</div>
+    <div class="row">
+      <input id="newRivalName" placeholder="Nombre (ej: Titan MMA)">
+      <input id="newRivalShort" placeholder="Siglas" style="flex:0 0 80px">
+    </div>
+    <button class="btn primary full" id="addRivalBtn" style="margin-top:6px">Crear promotora (roster generado automáticamente)</button>
+  </div>
+  <div style="margin-top:14px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">🔁 Mover peleador entre roster propio y rival</div>
+    <select id="moveFighterSel"><option value="">Selecciona un peleador de tu roster</option>
+      ${STATE.fighters.filter(x=>x.status!=='retired').sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}
+    </select>
+    <select id="moveToRivalSel"><option value="">— Enviar a promotora rival —</option>
+      ${rivals.map(rp=>`<option value="${rp.id}">${rp.name}</option>`).join('')}
+    </select>
+    <button class="btn small full" id="moveToRivalBtn" style="margin-top:6px">➡️ Enviar peleador a esta rival</button>
+    ${rivals.length?`
+    <label style="margin-top:10px">Traer un peleador de una rival a tu roster</label>
+    <select id="pullFromRivalSel"><option value="">Selecciona rival</option>${rivals.map(rp=>`<option value="${rp.id}">${rp.name}</option>`).join('')}</select>
+    <select id="pullFighterSel"><option value="">Selecciona peleador</option></select>
+    <button class="btn small full" id="pullFromRivalBtn" style="margin-top:6px">⬅️ Ficharlo para tu roster</button>`:''}
+  </div>
   `;
 }
 
@@ -6102,6 +6509,100 @@ function bindEditor(){
     STATE.awards.sort((a,b)=>a.year-b.year);
     saveLocal(); render(); toast('Año '+yr+' añadido ✅');
   };
+
+  // Guardar contrato del peleador seleccionado
+  const saveContractBtn = document.getElementById('saveContractBtn');
+  if(saveContractBtn) saveContractBtn.onclick=()=>{
+    const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+    if(!f.contract) f.contract = makeContract();
+    f.contract.salary = parseInt(document.getElementById('fld_salary').value)||0;
+    f.contract.finishBonus = parseInt(document.getElementById('fld_finishBonus').value)||0;
+    f.contract.fightsLeft = clamp(parseInt(document.getElementById('fld_fightsLeft').value)||0,0,20);
+    f.contract.demandLevel = clamp(parseInt(document.getElementById('fld_demandLevel').value)||0,0,100);
+    f.contract.loyalty = clamp(parseInt(document.getElementById('fld_loyalty').value)||0,0,100);
+    saveLocal(); toast('Contrato guardado ✅');
+  };
+
+  // Guardar presupuesto
+  const saveBudgetBtn = document.getElementById('saveBudgetBtn');
+  if(saveBudgetBtn) saveBudgetBtn.onclick=()=>{
+    STATE.meta.budget = parseInt(document.getElementById('fld_budget').value)||0;
+    saveLocal(); toast('Presupuesto guardado ✅');
+  };
+
+  // Promotoras rivales: guardar / eliminar / crear
+  document.querySelectorAll('.rivalSaveBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const rp = STATE.rivalPromotions.find(x=>x.id===btn.dataset.id); if(!rp) return;
+      const card = btn.closest('.fightcard-item');
+      rp.name = card.querySelector('.rivalNameFld').value.trim()||rp.name;
+      rp.short = card.querySelector('.rivalShortFld').value.trim()||rp.short;
+      rp.prestige = clamp(parseInt(card.querySelector('.rivalPrestigeFld').value)||0,0,99);
+      rp.budget = parseInt(card.querySelector('.rivalBudgetFld').value)||0;
+      saveLocal(); render(); toast('Promotora guardada ✅');
+    };
+  });
+  document.querySelectorAll('.rivalDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      if(!confirm('¿Eliminar esta promotora rival y todo su roster?')) return;
+      STATE.rivalPromotions = STATE.rivalPromotions.filter(x=>x.id!==btn.dataset.id);
+      saveLocal(); render(); toast('Promotora eliminada');
+    };
+  });
+  const addRivalBtn = document.getElementById('addRivalBtn');
+  if(addRivalBtn) addRivalBtn.onclick=()=>{
+    const name = document.getElementById('newRivalName').value.trim();
+    const short = document.getElementById('newRivalShort').value.trim();
+    if(!name){ toast('Ponle un nombre a la promotora','⚠️'); return; }
+    const fighters=[];
+    DIVISIONS.forEach(d=>{ for(let i=0;i<randi(4,7);i++) fighters.push(makeRivalFighter(d.id)); });
+    const titles = DIVISIONS.map(d=>{
+      const pool=fighters.filter(x=>x.division===d.id);
+      const champ = pool.length? pick(pool): null;
+      return {divisionId:d.id, holderId:champ?champ.id:null, holderName:champ?champ.name:null};
+    });
+    STATE.rivalPromotions.push({id:uid('RP'), name, short:short||name.slice(0,3).toUpperCase(), prestige:randi(25,55), budget:randi(1,4)*1000000, fighters, titles, recentEvents:[], eventSeq:1});
+    saveLocal(); render(); toast('Promotora creada ✅');
+  };
+
+  // Mover peleador: de tu roster a una rival
+  const moveToRivalBtn = document.getElementById('moveToRivalBtn');
+  if(moveToRivalBtn) moveToRivalBtn.onclick=()=>{
+    const fid = document.getElementById('moveFighterSel').value;
+    const rpid = document.getElementById('moveToRivalSel').value;
+    const f = STATE.fighters.find(x=>x.id===fid);
+    const rp = STATE.rivalPromotions.find(x=>x.id===rpid);
+    if(!f||!rp){ toast('Selecciona peleador y promotora','⚠️'); return; }
+    STATE.fighters = STATE.fighters.filter(x=>x.id!==fid);
+    rp.fighters.push({id:f.id, name:f.name, division:f.division, dob:f.dob, stats:{...f.stats}, fightStyle:f.fightStyle||'technical', chinDamage:f.chinDamage||0, record:{wins:f.record?.wins||0,losses:f.record?.losses||0}, longevity:f.longevity||80});
+    STATE.titles.forEach(t=>{ if(t.holderId===fid){ t.holderId=null; t.isInterim=false; } });
+    saveLocal(); render(); toast(`${fName(f)} enviado a ${rp.name}`);
+  };
+  // Poblar peleadores de la rival seleccionada para traer de vuelta
+  const pullFromRivalSel = document.getElementById('pullFromRivalSel');
+  if(pullFromRivalSel) pullFromRivalSel.onchange=()=>{
+    const rp = STATE.rivalPromotions.find(x=>x.id===pullFromRivalSel.value);
+    const sel = document.getElementById('pullFighterSel');
+    sel.innerHTML = '<option value="">Selecciona peleador</option>'+(rp?rp.fighters.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${x.id}">${x.name} (${divName(x.division)})</option>`).join(''):'');
+  };
+  const pullFromRivalBtn = document.getElementById('pullFromRivalBtn');
+  if(pullFromRivalBtn) pullFromRivalBtn.onclick=()=>{
+    const rp = STATE.rivalPromotions.find(x=>x.id===document.getElementById('pullFromRivalSel').value);
+    const fid = document.getElementById('pullFighterSel').value;
+    const rf = rp?.fighters.find(x=>x.id===fid);
+    if(!rp||!rf){ toast('Selecciona rival y peleador','⚠️'); return; }
+    rp.fighters = rp.fighters.filter(x=>x.id!==fid);
+    STATE.fighters.push({
+      id: rf.id, name: rf.name, nickname:'', gender:'M', country:'', dob:rf.dob, debut:STATE.meta.currentDate,
+      division: rf.division, stats:{...rf.stats}, longevity: rf.longevity||80, status:'active',
+      injury:{active:false,untilDate:null,note:''},
+      record:{wins:rf.record?.wins||0,losses:rf.record?.losses||0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0,ufcFights:0,ufcWins:0,ufcLosses:0,ufcKoWins:0,ufcSubWins:0,ufcDecWins:0,ufcKoLosses:0,ufcSubLosses:0,ufcDecLosses:0},
+      imageUrl:null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
+      fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation:50,
+      contract: makeContract(),
+    });
+    saveLocal(); render(); toast(`${rf.name} fichado a tu roster ✅`);
+  };
 }
 
 // Sincroniza el titular de un cinturón cuando se edita un reinado
@@ -6469,11 +6970,17 @@ async function init(){
   } else {
     STATE=freshState();
     seedFighters();
+    seedRivalPromotions();
   }
   // Si no hay ningún evento completado, resetear momentum a 0 para todos (estado inicial limpio)
   if(!STATE.events.filter(e=>e.status==='completed').length){
     STATE.fighters.forEach(f=>{ f.momentum=0; });
   }
+  // Migración: partidas guardadas antes de contratos/promotoras rivales/presupuesto
+  if(STATE.meta.budget==null) STATE.meta.budget = 5000000;
+  if(!STATE.pendingNegotiations) STATE.pendingNegotiations = [];
+  STATE.fighters.forEach(f=>{ if(!f.contract) f.contract = makeContract(); });
+  if(!STATE.rivalPromotions || !STATE.rivalPromotions.length) seedRivalPromotions();
   // Garantizar snapshot inicial para el gráfico de evolución de atributos
   if(!STATE.statsHistory) STATE.statsHistory={};
   STATE.fighters.forEach(f=>{
