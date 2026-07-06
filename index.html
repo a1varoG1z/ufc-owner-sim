@@ -239,12 +239,22 @@ function freshState(){
     rivalPromotions: [],  // ligas rivales — ver seedRivalPromotions()
     pendingNegotiations: [], // [{fighterId, rivalOfferSalary}] avisos de contrato a renovar
     callouts: [], // [{id, callerId, targetId, divisionId, eventSeqIssued}] retos entre peleadores
+    budgetLedger: [], // [{date, amount, reason, balance}] historial de movimientos de presupuesto
+    playerPrestigeHistory: [], // [{date, prestige}] para la gráfica comparativa en Promotoras
   };
 }
 
 function logEvent(msg){
   STATE.log.unshift({date:STATE.meta.currentDate, msg});
   if(STATE.log.length>400) STATE.log.length=400;
+}
+// Registra un movimiento de presupuesto (evento, fichaje, ajuste manual...) para poder
+// reconstruir después una gráfica real de evolución del presupuesto — sumar solo `_finance.net`
+// de eventos se queda corto, porque fichajes y ajustes manuales también mueven el dinero.
+function recordBudgetTx(amount, reason, date){
+  if(!STATE.budgetLedger) STATE.budgetLedger=[];
+  STATE.budgetLedger.push({date:date||STATE.meta.currentDate, amount, reason, balance:STATE.meta.budget||0});
+  if(STATE.budgetLedger.length>500) STATE.budgetLedger.shift();
 }
 
 /* ====================== GENERACIÓN DE PELEADORES SEED ====================== */
@@ -658,12 +668,19 @@ function simulateRivalEvent(promo, date){
   const prestigeReversion = Math.round((promo.prestigeBaseline - promo.prestige) * 0.08);
   promo.prestige = clamp(promo.prestige + prestigeSwing + prestigeReversion, 5, 99);
   promo.budget += randi(20,80)*1000;
+  if(!promo.prestigeHistory) promo.prestigeHistory=[];
+  promo.prestigeHistory.push({date, prestige:promo.prestige});
+  if(promo.prestigeHistory.length>60) promo.prestigeHistory.shift();
   return ev;
 }
 // Avanza todas las promotoras rivales un "turno" — se llama cada vez que el jugador
 // termina uno de sus propios eventos, para que el mundo rival progrese al mismo ritmo.
 function advanceRivalPromotions(date){
   (STATE.rivalPromotions||[]).forEach(promo=>{ if(Math.random()<0.7) simulateRivalEvent(promo, date); });
+  // Snapshot del prestigio del jugador al mismo ritmo, para la gráfica comparativa de Promotoras.
+  if(!STATE.playerPrestigeHistory) STATE.playerPrestigeHistory=[];
+  STATE.playerPrestigeHistory.push({date, prestige:playerPrestige()});
+  if(STATE.playerPrestigeHistory.length>60) STATE.playerPrestigeHistory.shift();
 }
 // ¿Hay una promotora rival interesada en robar a este peleador al expirar su contrato?
 // Devuelve null (nadie pica) o {promoId, promoName, amount} — la oferta que usará de palanca en la negociación.
@@ -682,6 +699,28 @@ function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(STATE)); }
 function loadLocal(){ const s=localStorage.getItem(LS_KEY); return s? JSON.parse(s): null; }
 function getCfg(){ return JSON.parse(localStorage.getItem(LS_CFG)||'{}'); }
 function setCfg(c){ localStorage.setItem(LS_CFG, JSON.stringify(c)); }
+
+/* ====================== SLOTS DE GUARDADO LOCAL ====================== */
+// Copias de seguridad rápidas dentro del propio navegador (además del export/import de JSON
+// y el guardado en GitHub) — útil para probar una decisión arriesgada sin miedo a perder la partida.
+const SAVE_SLOTS=[1,2,3];
+function slotKey(n){ return LS_KEY+'_slot'+n; }
+function getSlotInfo(n){
+  const raw=localStorage.getItem(slotKey(n));
+  if(!raw) return null;
+  try{
+    const data=JSON.parse(raw);
+    return { date:data.meta?.currentDate||'?', budget:data.meta?.budget||0, fighterCount:data.fighters?.length||0, savedAt:data._savedAt||null };
+  }catch(e){ return null; }
+}
+function saveToSlot(n){ localStorage.setItem(slotKey(n), JSON.stringify({...STATE, _savedAt:new Date().toISOString()})); }
+function loadFromSlot(n){
+  const raw=localStorage.getItem(slotKey(n));
+  if(!raw) return false;
+  STATE=JSON.parse(raw); saveLocal(); render();
+  return true;
+}
+function clearSlot(n){ localStorage.removeItem(slotKey(n)); }
 
 /* ====================== MOTOR DE SIMULACIÓN ====================== */
 // Estima el % de victoria simulando el combate muchas veces con el mismo motor real (round a round),
@@ -2584,6 +2623,8 @@ function tplPromotions(){
       ${bar(rp.prestige,'var(--blue)')}
       <span style="width:30px;text-align:right;font-size:.78rem">${rp.prestige}</span>
     </div>`).join('')}
+    <h4 style="margin-top:10px">Evolución del prestigio</h4>
+    <div id="prestigeChart"></div>
   </div>
   ${rivals.length===0?'<div class="card"><p class="muted">No hay promotoras rivales todavía. Puedes crear una desde el Editor.</p></div>':''}
   ${rivals.map(rp=>`
@@ -2645,6 +2686,10 @@ function bindPromotions(){
       buyRivalFighter(rp, rf);
     };
   });
+  const PROMO_COLORS=['var(--gold)','var(--blue)','var(--green)','var(--sub)','var(--dec)'];
+  const series=[{label:`${STATE.meta.leagueName} (tú)`, color:'var(--red)', points:(STATE.playerPrestigeHistory||[]).map(h=>({x:h.date,y:h.prestige}))}]
+    .concat((STATE.rivalPromotions||[]).map((rp,i)=>({label:rp.short||rp.name, color:PROMO_COLORS[i%PROMO_COLORS.length], points:(rp.prestigeHistory||[]).map(h=>({x:h.date,y:h.prestige}))})));
+  renderLineChart('prestigeChart', series, {height:150, yFmt:v=>Math.round(v), xLabel:fmtDate});
 }
 // Perfil simplificado de un peleador rival (no tiene todo el historial de un peleador propio)
 function openRivalFighterProfile(rf, rp){
@@ -2673,6 +2718,7 @@ function buyRivalFighter(rp, rf){
   if((STATE.meta.budget||0)<cost){ toast(`❌ Presupuesto insuficiente (necesitas $${cost.toLocaleString()})`); return; }
   if(!confirm(`¿Pagar $${cost.toLocaleString()} por los derechos de ${rf.name} (${rp.name})?`)) return;
   STATE.meta.budget -= cost;
+  recordBudgetTx(-cost, `Fichaje de ${rf.name} (${rp.name})`);
   rp.fighters = rp.fighters.filter(x=>x.id!==rf.id);
   if(isChamp){
     const t=rp.titles.find(x=>x.holderId===rf.id);
@@ -2701,6 +2747,71 @@ function restoreFighterFromRival(rf, isChamp){
     fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation: isChamp?70:50,
     contract: makeContract(generalScore(rf), isChamp?70:50),
   };
+}
+
+/* ====================== GRÁFICAS (SVG ligero, sin librerías) ====================== */
+// series: [{label, color, points:[{x,y}]}] — points ya ordenados por x, mismo eje Y para todas.
+// opts: {height, yFmt(v), xLabel(x)}. Un único eje Y siempre (nunca doble eje).
+function renderLineChart(containerId, series, opts){
+  opts = opts||{};
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  series = series.filter(s=>s.points && s.points.length);
+  if(!series.length){ el.innerHTML='<p class="muted" style="font-size:.75rem">Sin datos históricos todavía — juega algún evento.</p>'; return; }
+  const W=opts.width||340, H=opts.height||140, PAD_L=44, PAD_R=10, PAD_T=10, PAD_B=20;
+  const plotW=W-PAD_L-PAD_R, plotH=H-PAD_T-PAD_B;
+  const n = Math.max(...series.map(s=>s.points.length));
+  const yVals = series.flatMap(s=>s.points.map(p=>p.y));
+  let yMin=Math.min(0,...yVals), yMax=Math.max(...yVals);
+  if(yMin===yMax){ yMin-=1; yMax+=1; }
+  const yPad=(yMax-yMin)*0.08; yMin-=yPad; yMax+=yPad;
+  const xFor = i => PAD_L + (n<=1?plotW/2:(i/(n-1))*plotW);
+  const yFor = v => PAD_T + plotH - ((v-yMin)/(yMax-yMin))*plotH;
+
+  const gridLines = [0,0.25,0.5,0.75,1].map(t=>{
+    const y = PAD_T + t*plotH;
+    const val = yMax - t*(yMax-yMin);
+    return `<line x1="${PAD_L}" y1="${y.toFixed(1)}" x2="${W-PAD_R}" y2="${y.toFixed(1)}" style="stroke:var(--line);stroke-width:1"/>
+      <text x="${PAD_L-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" style="fill:var(--txt3)">${opts.yFmt?opts.yFmt(val):Math.round(val)}</text>`;
+  }).join('');
+  const zeroY = (yMin<0&&yMax>0) ? yFor(0) : null;
+  const zeroLine = zeroY!=null ? `<line x1="${PAD_L}" y1="${zeroY.toFixed(1)}" x2="${W-PAD_R}" y2="${zeroY.toFixed(1)}" style="stroke:var(--txt3);stroke-width:1;stroke-dasharray:3,3"/>` : '';
+
+  const paths = series.map(s=>{
+    const d = s.points.map((p,i)=>`${i===0?'M':'L'}${xFor(i).toFixed(1)},${yFor(p.y).toFixed(1)}`).join(' ');
+    return `<path d="${d}" fill="none" style="stroke:${s.color};stroke-width:2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }).join('');
+
+  const colW = plotW/Math.max(1,n-1||1);
+  const hitCols = Array.from({length:n},(_,i)=>`<rect class="lcHit" data-i="${i}" x="${(xFor(i)-colW/2).toFixed(1)}" y="${PAD_T}" width="${colW.toFixed(1)}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>`).join('');
+
+  const legend = series.length>1 ? `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px">${series.map(s=>
+    `<span style="font-size:.68rem;color:var(--txt2)"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.color};margin-right:4px"></span>${s.label}</span>`
+  ).join('')}</div>` : '';
+
+  el.innerHTML = `${legend}
+  <div style="position:relative">
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="overflow:visible;display:block">
+      ${gridLines}${zeroLine}${paths}${hitCols}
+    </svg>
+    <div class="lcTooltip" style="position:absolute;display:none;pointer-events:none;background:#000;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:.68rem;white-space:nowrap;top:2px;transform:translateX(-50%);z-index:2"></div>
+    <div class="lcCrosshair" style="position:absolute;display:none;pointer-events:none;top:${PAD_T}px;width:1px;height:${plotH}px;background:var(--txt3)"></div>
+  </div>`;
+
+  const tooltip=el.querySelector('.lcTooltip'), crosshair=el.querySelector('.lcCrosshair');
+  el.querySelectorAll('.lcHit').forEach(rect=>{
+    const i=parseInt(rect.dataset.i);
+    const pct=(xFor(i)/W*100).toFixed(2)+'%';
+    rect.addEventListener('mouseenter',()=>{
+      crosshair.style.left=pct; crosshair.style.display='block';
+      const lines=series.filter(s=>s.points[i]).map(s=>`<div><span style="color:${s.color}">●</span> ${s.label}: <b>${opts.yFmt?opts.yFmt(s.points[i].y):s.points[i].y.toLocaleString()}</b></div>`).join('');
+      const xv = series.find(s=>s.points[i])?.points[i]?.x;
+      const xLabel = opts.xLabel ? opts.xLabel(xv) : (xv??'');
+      tooltip.innerHTML = `<div style="color:var(--txt3);margin-bottom:2px">${xLabel}</div>${lines}`;
+      tooltip.style.left=pct; tooltip.style.display='block';
+    });
+    rect.addEventListener('mouseleave',()=>{ tooltip.style.display='none'; crosshair.style.display='none'; });
+  });
 }
 
 /* ====================== FINANZAS ====================== */
@@ -2738,6 +2849,11 @@ function tplFinance(){
     <div><div style="font-size:.65rem;color:#666;text-transform:uppercase;letter-spacing:1px">💰 Presupuesto actual</div>
     <div style="font-size:1.3rem;font-weight:900;color:${(STATE.meta.budget||0)>0?'#69f0ae':'#ef5350'}">$${(STATE.meta.budget||0).toLocaleString()}</div></div>
     <button class="btn small" onclick="UI.tab='editor';render()" style="font-size:.7rem">Editar →</button>
+  </div>
+
+  <div class="card">
+    <h3>📈 Evolución del presupuesto</h3>
+    <div id="budgetChart" style="margin-top:6px"></div>
   </div>
 
   <div class="card">
@@ -2797,10 +2913,21 @@ function tplFinance(){
   </div>
   `;
 }
+function budgetHistorySeries(){
+  const ledger = STATE.budgetLedger||[];
+  if(!ledger.length) return [{x:'Ahora', y:STATE.meta.budget||0}];
+  const startBalance = ledger[0].balance - ledger[0].amount;
+  const points = [{x:'Inicio', y:startBalance}];
+  ledger.forEach(tx=>points.push({x:tx.date, y:tx.balance}));
+  return points;
+}
 function bindFinance(){
   // Los elementos con [data-id] abren el perfil del peleador vía el delegado global de clicks.
   document.querySelectorAll('.negotiateBtn').forEach(btn=>{
     btn.onclick=e=>{ e.stopPropagation(); openContractNegotiation(btn.dataset.id); };
+  });
+  renderLineChart('budgetChart', [{label:'Presupuesto', color:'var(--gold)', points:budgetHistorySeries()}], {
+    height:150, yFmt:v=>'$'+Math.round(v).toLocaleString(), xLabel:x=>x==='Inicio'||x==='Ahora'?x:fmtDate(x)
   });
 }
 
@@ -3111,6 +3238,7 @@ function openFighterModal(fid, context){
     f.status='active'; f._scoutExpires=null;
     if(!f.contract) f.contract=makeContract(generalScore(f), f.reputation);
     STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
+    recordBudgetTx(-signingCost, `Fichaje de ${fName(f)} (Scouting)`);
     // Remove from scoutCandidates if present
     if(STATE.scoutCandidates) STATE.scoutCandidates=STATE.scoutCandidates.filter(c=>c.id!==f.id);
     if(!f.debut) f.debut=STATE.meta.currentDate;
@@ -5367,6 +5495,7 @@ function finishEvent(ev){
     });
   });
   STATE.meta.budget=(STATE.meta.budget||0)+eventRevenue-totalPurses;
+  recordBudgetTx(eventRevenue-totalPurses, `Evento: ${fName(ev)}`, ev.date);
   // Compras PPV: cifra de cara al jugador (no forma parte del dinero real del negocio), con la
   // misma variación por cómo sale el combate principal — un main event soso vende menos.
   let estBuys = estimateEventBuys(ev);
@@ -6521,6 +6650,7 @@ function bindScout(){
       c.division=divId; c.status='active'; c._scoutExpires=null;
       if(!c.contract) c.contract=makeContract(generalScore(c), c.reputation);
       STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
+      recordBudgetTx(-signingCost, `Fichaje de ${fName(c)} (Scouting)`);
       if(!STATE.fighters.find(x=>x.id===c.id)) STATE.fighters.push(c);
       STATE.scoutCandidates=(STATE.scoutCandidates||[]).filter(x=>x.id!==c.id);
       if(!c.debut) c.debut=STATE.meta.currentDate;
@@ -7313,7 +7443,10 @@ function bindEditor(){
   // Guardar presupuesto
   const saveBudgetBtn = document.getElementById('saveBudgetBtn');
   if(saveBudgetBtn) saveBudgetBtn.onclick=()=>{
+    const prevBudget = STATE.meta.budget||0;
     STATE.meta.budget = parseInt(document.getElementById('fld_budget').value)||0;
+    const delta = STATE.meta.budget-prevBudget;
+    if(delta!==0) recordBudgetTx(delta, 'Ajuste manual (Editor)');
     saveLocal(); toast('Presupuesto guardado ✅');
   };
 
@@ -7630,6 +7763,23 @@ function tplSettings(){
     <p class="muted" id="ghStatus"></p>
   </div>
   <div class="card">
+    <h3>💾 Guardado rápido (slots locales)</h3>
+    <p class="muted" style="font-size:.75rem">Guarda hasta 3 copias de tu partida en este navegador, para volver atrás sin depender de exportar/importar ficheros.</p>
+    ${SAVE_SLOTS.map(n=>{
+      const info=getSlotInfo(n);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1a1a">
+        <div>
+          <div style="font-weight:700;font-size:.85rem">Slot ${n}</div>
+          ${info?`<div class="muted" style="font-size:.7rem">${fmtDate(info.date)} · $${info.budget.toLocaleString()} · ${info.fighterCount} peleadores${info.savedAt?' · guardado '+new Date(info.savedAt).toLocaleString():''}</div>`:'<div class="muted" style="font-size:.7rem">Vacío</div>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn small primary saveSlotBtn" data-slot="${n}">Guardar</button>
+          ${info?`<button class="btn small loadSlotBtn" data-slot="${n}">Cargar</button><button class="btn small danger clearSlotBtn" data-slot="${n}">✕</button>`:''}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>
+  <div class="card">
     <h3>Datos locales</h3>
     <div class="row">
       <button class="btn full" id="newGameBtn">🔄 Nueva partida (resetear con 2 por categoría)</button>
@@ -7650,6 +7800,30 @@ function tplSettings(){
   </div>`;
 }
 function bindSettings(){
+  // Slots de guardado local
+  document.querySelectorAll('.saveSlotBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const n=btn.dataset.slot;
+      const info=getSlotInfo(n);
+      if(info && !confirm(`El Slot ${n} ya tiene una partida guardada (${fmtDate(info.date)}). ¿Sobrescribir?`)) return;
+      saveToSlot(n); render(); toast(`Partida guardada en Slot ${n} ✅`);
+    };
+  });
+  document.querySelectorAll('.loadSlotBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const n=btn.dataset.slot;
+      if(!confirm(`¿Cargar la partida del Slot ${n}? Se perderá el progreso actual no guardado.`)) return;
+      if(loadFromSlot(n)) toast(`Partida cargada desde Slot ${n} ✅`);
+    };
+  });
+  document.querySelectorAll('.clearSlotBtn').forEach(btn=>{
+    btn.onclick=e=>{
+      e.stopPropagation();
+      const n=btn.dataset.slot;
+      if(!confirm(`¿Vaciar el Slot ${n}? Esta acción no se puede deshacer.`)) return;
+      clearSlot(n); render(); toast(`Slot ${n} vaciado`);
+    };
+  });
   // Notificaciones
   const notifMap={notif_lesion:'injury',notif_sancion:'sanction',notif_retiro:'retire',notif_titulo:'title',notif_premio:'award',notif_milestone:'milestone'};
   Object.entries(notifMap).forEach(([id,cat])=>{
