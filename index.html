@@ -2024,8 +2024,12 @@ function collectPreEventInjuries(ev){
 function runPreEventInjuryCheck(ev, onDone){
   const queue = collectPreEventInjuries(ev);
   if(!queue.length){ onDone(); return; }
+  // "Disponible" = no reservado en NINGÚN evento programado (no solo en este) — un peleador ya
+  // apalabrado para otro cartel no puede meterse de sustituto de última hora en este.
   const bookedIds = new Set();
-  ev.card.forEach(ft=>{ bookedIds.add(ft.fighterA); bookedIds.add(ft.fighterB); });
+  STATE.events.filter(x=>x.status==='scheduled').forEach(otherEv=>{
+    otherEv.card.forEach(ft=>{ bookedIds.add(ft.fighterA); bookedIds.add(ft.fighterB); });
+  });
 
   function processNext(i){
     if(i>=queue.length){ saveLocal(); onDone(); return; }
@@ -2638,7 +2642,21 @@ function buyRivalFighter(rp, rf){
     const t=rp.titles.find(x=>x.holderId===rf.id);
     if(t){ t.holderId=null; t.holderName=null; }
   }
-  STATE.fighters.push({
+  STATE.fighters.push(restoreFighterFromRival(rf, isChamp));
+  logEvent(`💰 ${rf.name} ficha por tu promotora tras pagar $${cost.toLocaleString()} a ${rp.name}.`);
+  saveLocal(); render(); toast(`${rf.name} fichado ✅ (-$${cost.toLocaleString()})`);
+}
+// Si `rf` era un peleador propio antes de irse a una rival (tiene .contract), conserva TODO su
+// perfil intacto (foto, títulos, historial, contrato...) en vez de reconstruirlo desde cero como
+// si fuera un peleador rival genérico. Si es un peleador nativo de la rival (nunca fue nuestro),
+// se construye un perfil nuevo a partir de sus datos reducidos, como hasta ahora.
+function restoreFighterFromRival(rf, isChamp){
+  if(rf.contract){
+    rf.status='active';
+    if(rf.injury) rf.injury.active=false;
+    return rf;
+  }
+  return {
     id: rf.id, name: rf.name, nickname:'', gender:'M', country:'', dob:rf.dob, debut:STATE.meta.currentDate,
     division: rf.division, stats:{...rf.stats}, longevity: rf.longevity||80, status:'active',
     injury:{active:false,untilDate:null,note:''},
@@ -2646,9 +2664,7 @@ function buyRivalFighter(rp, rf){
     imageUrl:null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
     fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation: isChamp?70:50,
     contract: makeContract(generalScore(rf), isChamp?70:50),
-  });
-  logEvent(`💰 ${rf.name} ficha por tu promotora tras pagar $${cost.toLocaleString()} a ${rp.name}.`);
-  saveLocal(); render(); toast(`${rf.name} fichado ✅ (-$${cost.toLocaleString()})`);
+  };
 }
 
 /* ====================== FINANZAS ====================== */
@@ -2710,6 +2726,25 @@ function tplFinance(){
   </div>
 
   <div class="card">
+    <h3>⏳ Contratos a punto de expirar</h3>
+    ${(()=>{
+      const expiring = STATE.fighters.filter(f=>(f.status==='active'||f.status==='injured') && f.contract && (f.contract.fightsLeft??99)<=1)
+        .slice().sort((a,b)=>(a.contract.fightsLeft??0)-(b.contract.fightsLeft??0));
+      if(!expiring.length) return '<p class="muted" style="font-size:.75rem">Ningún peleador activo está a punto de agotar su contrato.</p>';
+      return expiring.map(f=>{
+        const pending = (STATE.pendingNegotiations||[]).some(n=>n.fighterId===f.id);
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1a1a1a">
+          <span class="clickable" data-id="${f.id}" style="font-size:.78rem;cursor:pointer">${fName(f)} <span class="muted" style="font-size:.68rem">(${divName(f.division)})</span></span>
+          <span style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:.72rem;color:${f.contract.fightsLeft<=0?'#ef5350':'#ffb74d'}">${f.contract.fightsLeft<=0?'Expirado':'1 pelea restante'}</span>
+            ${pending?`<button class="btn small primary negotiateBtn" data-id="${f.id}" style="font-size:.68rem">Negociar</button>`:''}
+          </span>
+        </div>`;
+      }).join('');
+    })()}
+  </div>
+
+  <div class="card">
     <h3>🧾 Historial de eventos</h3>
     ${completedEvents.length===0?'<p class="muted">Sin eventos completados todavía.</p>':completedEvents.slice().reverse().slice(0,25).map(ev=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1a1a1a">
@@ -2724,6 +2759,9 @@ function tplFinance(){
 }
 function bindFinance(){
   // Los elementos con [data-id] abren el perfil del peleador vía el delegado global de clicks.
+  document.querySelectorAll('.negotiateBtn').forEach(btn=>{
+    btn.onclick=e=>{ e.stopPropagation(); openContractNegotiation(btn.dataset.id); };
+  });
 }
 
 /* ====================== ROSTER ====================== */
@@ -3336,7 +3374,7 @@ function tplEventBuilder(ev){
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">+ posibles bonos por finalización</span><span>hasta $${Math.round(est.maxBonus).toLocaleString()}</span></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Ingresos estimados</span><b style="color:#69f0ae">$${Math.round(est.estRevenue).toLocaleString()}</b></div>
         <div style="display:flex;justify-content:space-between;padding:4px 0 0;margin-top:2px;border-top:1px solid var(--line)"><span class="muted">Beneficio estimado</span><b style="color:${estNet>=0?'#69f0ae':'#ef5350'}">${estNet>=0?'+':''}$${Math.round(estNet).toLocaleString()}</b></div>
-        <p class="muted" style="font-size:.65rem;margin-top:4px">No incluye bonos de FOTN/Actuación ni lesiones de última hora — estimación previa a simular.</p>
+        <p class="muted" style="font-size:.65rem;margin-top:4px">Estimación previa, no garantizada: no incluye bonos de FOTN/Actuación ni lesiones de última hora, y el resultado real puede variar (un combate soso puede rendir menos de lo esperado).</p>
       </div>`;
     })()}
     ${ev.card.length>0? `
@@ -3872,7 +3910,9 @@ function openContractNegotiation(fighterId){
     if(rivalOffer){
       const rp = STATE.rivalPromotions.find(x=>x.id===rivalOffer.promoId);
       STATE.fighters = STATE.fighters.filter(x=>x.id!==fighterId);
-      if(rp) rp.fighters.push({id:f.id,name:f.name,division:f.division,dob:f.dob,stats:{...f.stats},fightStyle:f.fightStyle||'technical',chinDamage:f.chinDamage||0,record:{wins:f.record.wins||0,losses:f.record.losses||0},longevity:f.longevity||80});
+      // Se conserva el objeto completo (foto, títulos, historial, contrato...) en vez de recortarlo
+      // a un peleador rival "genérico" — así, si se recupera más adelante, vuelve intacto.
+      if(rp) rp.fighters.push(f);
       logEvent(`💸 ${fName(f)} ficha por ${rivalOffer.promoName} tras no llegar a un acuerdo.`);
       richToast(`${fName(f)} se marcha a ${rivalOffer.promoName}`,'💸','#ef5350',5000);
     } else {
@@ -5256,6 +5296,12 @@ function finishEvent(ev){
     // escala de estrellato sin blindar al jugador de sus propias decisiones de contratación.
     const fairA=fairPurse(generalScore(fA),fA.reputation), fairB=fairPurse(generalScore(fB),fB.reputation);
     let fightRevenue=estimateFightRevenue(fairA,fairB,fightRevenueOpts(ft,fA,fB));
+    // Variación real por cómo sale el combate: ni el mejor cartel garantiza recaudación si el
+    // público reacciona mal (combate soso, poca acción...) — así hasta un evento bien pagado
+    // puede acabar perdiendo dinero, como en la vida real. La estimación previa (tplEventBuilder)
+    // muestra el valor ESPERADO; el resultado real siempre puede variar por encima o por debajo.
+    fightRevenue *= 0.7 + Math.random()*0.6;
+    if(r.method==='Decisión' && r.decType==='Unánime') fightRevenue *= 0.9;
     if(r.isFOTN) fightRevenue*=1.15;
     eventRevenue+=Math.round(fightRevenue);
     [fA,fB].forEach(pf=>{
@@ -7257,7 +7303,9 @@ function bindEditor(){
     const rp = STATE.rivalPromotions.find(x=>x.id===rpid);
     if(!f||!rp){ toast('Selecciona peleador y promotora','⚠️'); return; }
     STATE.fighters = STATE.fighters.filter(x=>x.id!==fid);
-    rp.fighters.push({id:f.id, name:f.name, division:f.division, dob:f.dob, stats:{...f.stats}, fightStyle:f.fightStyle||'technical', chinDamage:f.chinDamage||0, record:{wins:f.record?.wins||0,losses:f.record?.losses||0}, longevity:f.longevity||80});
+    // Se conserva el objeto completo (foto, títulos, historial, contrato...) para que si se
+    // recupera más adelante, vuelva intacto en vez de como un peleador "genérico".
+    rp.fighters.push(f);
     STATE.titles.forEach(t=>{ if(t.holderId===fid){ t.holderId=null; t.isInterim=false; } });
     saveLocal(); render(); toast(`${fName(f)} enviado a ${rp.name}`);
   };
@@ -7274,16 +7322,10 @@ function bindEditor(){
     const fid = document.getElementById('pullFighterSel').value;
     const rf = rp?.fighters.find(x=>x.id===fid);
     if(!rp||!rf){ toast('Selecciona rival y peleador','⚠️'); return; }
+    const isChamp = rp.titles.some(t=>t.holderId===fid);
     rp.fighters = rp.fighters.filter(x=>x.id!==fid);
-    STATE.fighters.push({
-      id: rf.id, name: rf.name, nickname:'', gender:'M', country:'', dob:rf.dob, debut:STATE.meta.currentDate,
-      division: rf.division, stats:{...rf.stats}, longevity: rf.longevity||80, status:'active',
-      injury:{active:false,untilDate:null,note:''},
-      record:{wins:rf.record?.wins||0,losses:rf.record?.losses||0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0,ufcFights:0,ufcWins:0,ufcLosses:0,ufcKoWins:0,ufcSubWins:0,ufcDecWins:0,ufcKoLosses:0,ufcSubLosses:0,ufcDecLosses:0},
-      imageUrl:null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
-      fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation:50,
-      contract: makeContract(generalScore(rf)),
-    });
+    if(isChamp){ const t=rp.titles.find(x=>x.holderId===fid); if(t){ t.holderId=null; t.holderName=null; } }
+    STATE.fighters.push(restoreFighterFromRival(rf, isChamp));
     saveLocal(); render(); toast(`${rf.name} fichado a tu roster ✅`);
   };
 }
