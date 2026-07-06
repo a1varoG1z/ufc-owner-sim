@@ -326,6 +326,30 @@ function fightRevenueOpts(ft, a, b){
     isRival: (a && b) ? isRival(a.id, b.id) : false,
   };
 }
+// Estimación de "compras PPV" — una métrica de cara al jugador, independiente de la economía
+// abstracta en dólares, para que el hype de un cartel se sienta como una cifra real de UFC
+// (100k de una cartelera floja, hasta millones para un evento estelar). Tira sobre todo del
+// combate principal (idx 0), con un pequeño extra por la profundidad del resto de la cartelera.
+function estimateEventBuys(ev){
+  if(!ev.card.length) return 0;
+  const main = ev.card[0];
+  const mA=STATE.fighters.find(x=>x.id===main.fighterA), mB=STATE.fighters.find(x=>x.id===main.fighterB);
+  if(!mA||!mB) return 0;
+  const mainPower=(starPower(generalScore(mA),mA.reputation)+starPower(generalScore(mB),mB.reputation))/2;
+  const t=mainPower/100;
+  let buys = 40000 + Math.pow(t,4)*1400000;
+  const opts = fightRevenueOpts(main, mA, mB);
+  if(opts.isTitle) buys *= opts.isInterim ? 1.15 : opts.isMinorTitle ? 1.2 : 1.35;
+  if(opts.isContender) buys *= 1.08;
+  if(opts.isRival) buys *= 1.2;
+  const restPower = ev.card.slice(1,4).reduce((s,ft)=>{
+    const a=STATE.fighters.find(x=>x.id===ft.fighterA), b=STATE.fighters.find(x=>x.id===ft.fighterB);
+    if(!a||!b) return s;
+    return s+(starPower(generalScore(a),a.reputation)+starPower(generalScore(b),b.reputation))/2;
+  },0);
+  buys *= 1 + Math.min(0.15, restPower/100*0.03);
+  return buys;
+}
 function makeContract(level, rep){
   const power = starPower(level, rep);
   const base = starPayCurve(power);
@@ -2687,12 +2711,14 @@ function tplFinance(){
   const lifetime = completedEvents.reduce((acc,ev)=>{
     acc.revenue+=ev._finance.revenue||0; acc.purses+=ev._finance.purses||0;
     acc.bonus+=ev._finance.bonusPayouts||0; acc.net+=ev._finance.net||0;
+    acc.buys+=ev._finance.buys||0;
     return acc;
-  },{revenue:0,purses:0,bonus:0,net:0});
+  },{revenue:0,purses:0,bonus:0,net:0,buys:0});
   const avgNet = completedEvents.length? Math.round(lifetime.net/completedEvents.length) : 0;
 
   const mostProfitable = completedEvents.slice().sort((a,b)=>b._finance.net-a._finance.net)[0];
   const leastProfitable = completedEvents.slice().sort((a,b)=>a._finance.net-b._finance.net)[0];
+  const mostBuys = completedEvents.slice().sort((a,b)=>(b._finance.buys||0)-(a._finance.buys||0))[0];
 
   const topEarners = STATE.fighters.filter(f=>fighterCareerEarnings(f)>0)
     .slice().sort((a,b)=>fighterCareerEarnings(b)-fighterCareerEarnings(a)).slice(0,10);
@@ -2715,7 +2741,8 @@ function tplFinance(){
 
   <div class="card">
     <h3>📊 Histórico acumulado (${completedEvents.length} eventos)</h3>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px">
+      ${stat('📺 Compras PPV',lifetime.buys.toLocaleString(),'#82b1ff')}
       ${stat('Ingresos totales','$'+lifetime.revenue.toLocaleString(),'#69f0ae')}
       ${stat('Bolsas pagadas','$'+lifetime.purses.toLocaleString(),'#ef5350')}
       ${stat('Bonos (FOTN/POTN)','$'+lifetime.bonus.toLocaleString(),'#ffb74d')}
@@ -2726,6 +2753,7 @@ function tplFinance(){
 
   <div class="card">
     <h3>🏆 Líderes financieros</h3>
+    ${mostBuys?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">📺 Evento con más compras PPV</span><span style="font-size:.78rem;font-weight:700;color:#82b1ff">${fName(mostBuys)} (${(mostBuys._finance.buys||0).toLocaleString()})</span></div>`:''}
     ${mostProfitable?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">📈 Evento más rentable</span><span style="font-size:.78rem;font-weight:700;color:#69f0ae">${fName(mostProfitable)} (+$${mostProfitable._finance.net.toLocaleString()})</span></div>`:''}
     ${leastProfitable?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">📉 Evento menos rentable</span><span style="font-size:.78rem;font-weight:700;color:${leastProfitable._finance.net>=0?'#69f0ae':'#ef5350'}">${fName(leastProfitable)} (${leastProfitable._finance.net>=0?'+':''}$${leastProfitable._finance.net.toLocaleString()})</span></div>`:''}
     ${topContract?`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a1a"><span style="font-size:.78rem">💵 Contrato activo más caro</span><span class="clickable" data-id="${topContract.id}" style="font-size:.78rem;font-weight:700;cursor:pointer">${fName(topContract)} ($${(topContract.contract?.salary||0).toLocaleString()}/pelea)</span></div>`:''}
@@ -2761,7 +2789,7 @@ function tplFinance(){
       <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1a1a1a">
         <div>
           <div style="font-size:.8rem;font-weight:700">${fName(ev)}</div>
-          <div class="muted" style="font-size:.68rem">${fmtDate(ev.date)} · ingresos $${(ev._finance.revenue||0).toLocaleString()} − bolsas $${(ev._finance.purses||0).toLocaleString()}</div>
+          <div class="muted" style="font-size:.68rem">${fmtDate(ev.date)} · 📺 ${(ev._finance.buys||0).toLocaleString()} compras · ingresos $${(ev._finance.revenue||0).toLocaleString()} − bolsas $${(ev._finance.purses||0).toLocaleString()}</div>
         </div>
         <div style="font-weight:800;color:${ev._finance.net>=0?'#69f0ae':'#ef5350'}">${ev._finance.net>=0?'+':''}$${ev._finance.net.toLocaleString()}</div>
       </div>`).join('')}
@@ -3379,8 +3407,10 @@ function tplEventBuilder(ev){
         return acc;
       },{guaranteedPurse:0,maxBonus:0,estRevenue:0});
       const estNet = est.estRevenue - est.guaranteedPurse;
+      const estBuys = estimateEventBuys(ev);
       return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-top:8px;font-size:.78rem">
         <div style="font-size:.65rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💰 Estimación económica del evento</div>
+        <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">📺 Compras PPV estimadas</span><b style="color:#82b1ff">${Math.round(estBuys).toLocaleString()}</b></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Bolsas garantizadas</span><b>$${Math.round(est.guaranteedPurse).toLocaleString()}</b></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">+ posibles bonos por finalización</span><span>hasta $${Math.round(est.maxBonus).toLocaleString()}</span></div>
         <div style="display:flex;justify-content:space-between;padding:2px 0"><span class="muted">Ingresos estimados</span><b style="color:#69f0ae">$${Math.round(est.estRevenue).toLocaleString()}</b></div>
@@ -5331,7 +5361,16 @@ function finishEvent(ev){
     });
   });
   STATE.meta.budget=(STATE.meta.budget||0)+eventRevenue-totalPurses;
-  ev._finance={revenue:eventRevenue, purses:totalPurses, bonusPayouts:totalBonusPayouts, net:eventRevenue-totalPurses};
+  // Compras PPV: cifra de cara al jugador (no forma parte del dinero real del negocio), con la
+  // misma variación por cómo sale el combate principal — un main event soso vende menos.
+  let estBuys = estimateEventBuys(ev);
+  const mainResult = ev.card[0]?.result;
+  if(mainResult){
+    estBuys *= 0.75 + Math.random()*0.5;
+    if(mainResult.method==='Decisión' && mainResult.decType==='Unánime') estBuys *= 0.9;
+    if(mainResult.isFOTN) estBuys *= 1.1;
+  }
+  ev._finance={revenue:eventRevenue, purses:totalPurses, bonusPayouts:totalBonusPayouts, net:eventRevenue-totalPurses, buys:Math.round(estBuys)};
   const net=eventRevenue-totalPurses;
   logEvent(`💰 ${fName(ev)}: ingresos $${eventRevenue.toLocaleString()} − bolsas $${totalPurses.toLocaleString()} = ${net>=0?'+':''}$${net.toLocaleString()}`);
 
@@ -5473,6 +5512,10 @@ function showEventSummary(ev, completedFights){
       <!-- Cuerpo SCROLLABLE -->
       <div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">
 
+        ${ev._finance?`<div style="display:flex;justify-content:space-around;text-align:center;padding:10px 16px;border-bottom:1px solid #1a1a1a">
+          <div><div style="font-size:.95rem;font-weight:800;color:#82b1ff">📺 ${(ev._finance.buys||0).toLocaleString()}</div><div style="font-size:.6rem;color:#666;text-transform:uppercase">Compras PPV</div></div>
+          <div><div style="font-size:.95rem;font-weight:800;color:${ev._finance.net>=0?'#69f0ae':'#ef5350'}">${ev._finance.net>=0?'+':''}$${ev._finance.net.toLocaleString()}</div><div style="font-size:.6rem;color:#666;text-transform:uppercase">Beneficio neto</div></div>
+        </div>`:''}
         ${champChanges?`<div style="background:rgba(212,175,55,.08);border-bottom:1px solid rgba(212,175,55,.2);padding:12px 16px">${champChanges}</div>`:''}
 
         <div style="padding:0 16px 8px">
