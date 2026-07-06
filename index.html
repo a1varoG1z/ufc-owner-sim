@@ -1166,6 +1166,61 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
           winner, scA:Math.round(scA), scB:Math.round(scB), pos, finish, timeInRound:timeElapsed};
 }
 
+// ── TARJETAS DE LOS 3 JUECES (sistema real de 10 puntos de la UFC) ──────────
+// Reglas unificadas de MMA (verificado): el ganador de cada asalto se lleva 10 puntos y el
+// perdedor 9 (asalto competido), o 8 si lo domina claramente (o hay un KD claro que decide);
+// un asalto realmente parejo puede puntuarse 10-10 (raro). NO existe ningún descuento fijo de
+// puntos por derribo — los derribos solo cuentan como parte del "grappling efectivo" a la hora
+// de decidir quién gana el asalto, igual que los golpes. Los descuentos de puntos en la UFC real
+// son solo por FALTAS (no simuladas aquí), nunca por derribos.
+// Decisión unánime = los 3 jueces coinciden en el ganador. Dividida = 2 jueces para el ganador,
+// 1 para el perdedor. Mayoría = 2 jueces para el ganador, 1 ve el combate empatado.
+function generateJudgeScorecards(roundDetails, canonicalWinner){
+  const scoredRounds = roundDetails.filter(rd=>rd.winner!=='finish');
+  const CLOSE_THRESHOLD = 10; // asaltos reñidos donde un juez puede legítimamente discrepar
+  const judges = [];
+  for(let j=0;j<3;j++){
+    let totalA=0, totalB=0;
+    scoredRounds.forEach(rd=>{
+      const trueWinner = rd.winner; // 'A' o 'B' — ya decidido en _simRound sin ruido de percepción
+      const diff = Math.abs((rd.scoreA||0)-(rd.scoreB||0));
+      // En un asalto reñido, un juez concreto tiene una pequeña probabilidad de verlo al revés
+      // que el resultado "real" de las estadísticas — así es como discrepan jueces de verdad.
+      let roundWinner = trueWinner;
+      if(diff<CLOSE_THRESHOLD && Math.random()<0.15) roundWinner = trueWinner==='A'?'B':'A';
+      const kdA=rd.statsA?.kd||0, kdB=rd.statsB?.kd||0;
+      const kdEdgeForWinner = roundWinner==='A' ? kdA-kdB : kdB-kdA;
+      // Asalto dominante (10-8): margen muy amplio o doble derribo/castigo claro — en la UFC real
+      // esto ocurre en una minoría de asaltos, no en la mitad de ellos.
+      const dominant = diff>=52 || kdEdgeForWinner>=2;
+      const ptsWinner=10, ptsLoser=dominant?8:9;
+      if(roundWinner==='A'){ totalA+=ptsWinner; totalB+=ptsLoser; } else { totalB+=ptsWinner; totalA+=ptsLoser; }
+    });
+    judges.push({totalA, totalB});
+  }
+  // Garantiza consistencia con el ganador real de la pelea (roundsA/roundsB): al menos 2 de los
+  // 3 jueces tienen que coincidir con él, si no el ruido podría producir un resultado imposible
+  // (el combate "lo gana" un peleador pero la mayoría de tarjetas dicen lo contrario).
+  const winnerKey = canonicalWinner==='A'?'totalA':'totalB', loserKey=canonicalWinner==='A'?'totalB':'totalA';
+  let agree = judges.filter(jc=>jc[winnerKey]>jc[loserKey]).length;
+  for(let j=0; j<judges.length && agree<2; j++){
+    if(judges[j][winnerKey]<=judges[j][loserKey]){
+      const need=judges[j][loserKey]-judges[j][winnerKey]+1;
+      judges[j][winnerKey]+=need;
+      agree++;
+    }
+  }
+  return judges;
+}
+function judgeDecType(judges, canonicalWinner){
+  const winnerKey = canonicalWinner==='A'?'totalA':'totalB', loserKey=canonicalWinner==='A'?'totalB':'totalA';
+  const picks = judges.map(jc=> jc[winnerKey]>jc[loserKey] ? 'winner' : jc[winnerKey]<jc[loserKey] ? 'loser' : 'draw');
+  const winnerPicks = picks.filter(p=>p==='winner').length;
+  if(winnerPicks>=3) return 'Unánime';
+  if(picks.includes('draw')) return 'Mayoría';
+  return 'Dividida';
+}
+
 // ── FUNCIÓN PRINCIPAL simulateFight ──────────────────────────────────────────
 function simulateFight(fA, fB, opts={}){
   const rounds=opts.rounds||3;
@@ -1267,14 +1322,12 @@ function simulateFight(fA, fB, opts={}){
 
   if(!result){
     const winner=roundsA>=roundsB?fA:fB;
-    const margin=Math.abs(roundsA-roundsB); // 1=ajustado, 2/3=dominante (en 5 rounds)
-    const closeRounds=roundDetails.filter(rd=>rd.winner!=='finish'&&Math.abs((rd.scoreA||0)-(rd.scoreB||0))<6).length;
-    // Decisión dividida: pelea cerrada (2-1 en 3-round, o muchos asaltos apretados)
-    let decType='Unánime';
-    if(margin===1 && rounds===3){ const r2=Math.random(); if(r2<0.18) decType='Dividida'; else if(r2<0.26) decType='Mayoría'; }
-    else if(margin<=1 && rounds===5){ const r2=Math.random(); if(r2<0.22) decType='Dividida'; else if(r2<0.32) decType='Mayoría'; }
-    else if(closeRounds>=2) { if(Math.random()<0.12) decType='Dividida'; }
-    result={winner,loser:winner===fA?fB:fA,method:'Decisión',decType,round:rounds,time:'5:00'};
+    const canonicalWinner=winner===fA?'A':'B';
+    // Tarjetas reales de los 3 jueces (sistema de 10 puntos) — decType sale de cómo puntúa
+    // cada juez de verdad, no de un porcentaje inventado a partir del margen de asaltos.
+    const judgeScores = generateJudgeScorecards(roundDetails, canonicalWinner);
+    const decType = judgeDecType(judgeScores, canonicalWinner);
+    result={winner,loser:winner===fA?fB:fA,method:'Decisión',decType,round:rounds,time:'5:00',judgeScores};
   }
 
   result.totalRounds=rounds; result.roundScores=roundScores; result.roundDetails=roundDetails;
@@ -2231,7 +2284,7 @@ function simulateEvent(ev){
     fight.result = {
       winnerId:result.winner.id, loserId:result.loser.id, method:result.method, decType:result.decType||null, round:result.round, time:result.time,
       fightOfNight:result.fightOfNight, performance:result.performance,
-      missedWeight: missedId||null
+      missedWeight: missedId||null, judgeScores:result.judgeScores||null
     };
     applyFightResultToState(fight, fA, fB, result, ev);
     checkAndUpdateRecords(fA, fB, result, ev.date);
@@ -3909,6 +3962,13 @@ function showFightResultModal(fight, ev){
   const title=fight.titleId?STATE.titles.find(t=>t.id===fight.titleId):null;
   const champChange=fight.titleId&&r.winnerId!==title?.holderId;
   const method_label=r.method+(r.decType?' '+r.decType:'');
+  // Tarjetas de los 3 jueces (solo existen si el combate acabó por decisión) — se muestran
+  // siempre con la puntuación del ganador primero, sin importar en qué esquina peleara.
+  const winnerIsA = r.winnerId===fight.fighterA;
+  const scorecardsHtml = (r.judgeScores&&r.judgeScores.length) ? r.judgeScores.map(jc=>{
+    const wScore = winnerIsA?jc.totalA:jc.totalB, lScore = winnerIsA?jc.totalB:jc.totalA;
+    return `${wScore}-${lScore}`;
+  }).join(' · ') : null;
   // Calc fight stats from roundDetails if available
   const rdList = r.roundDetails||[];
   const sigW = rdList.reduce((s,rd)=>s+(r.winnerId===fight.fighterA?(rd.statsA?.sigL||0):(rd.statsB?.sigL||0)),0);
@@ -3943,6 +4003,7 @@ function showFightResultModal(fight, ev){
         <div style="font-size:1.8rem">${isKO?'💥':isSub?'🤼':'📋'}</div>
         <div style="font-size:1.2rem;font-weight:900;color:${isKO?'#ef5350':isSub?'#ce93d8':'#90caf9'};margin:4px 0">${method_label}</div>
         <div style="font-size:.82rem;color:#aaa">Ronda <b style="color:#fff">${r.round}</b> · <b style="color:#fff">${r.time}</b></div>
+        ${scorecardsHtml?`<div style="font-size:.75rem;color:#888;margin-top:4px">📋 Tarjetas: <b style="color:#ccc">${scorecardsHtml}</b></div>`:''}
       </div>
       ${r.fightOfNight||r.isFOTN?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">🌟 Pelea de la Noche</div>':''}
       ${r.performance?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">⭐ Actuación de la Noche</div>':''}
@@ -4837,6 +4898,7 @@ function openLiveFightViewer(ev){
               <div style="font-size:2.5rem">${isKO?'💥':isSub?'🤼':'📋'}</div>
               <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${methodLabel(result)}</div>
               <div style="font-size:.9rem;color:var(--txt2)">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
+              ${result.judgeScores?`<div style="font-size:.78rem;color:var(--txt2);margin-top:4px">📋 Tarjetas: <b style="color:#fff">${result.judgeScores.map(jc=>{const wS=w.id===fA.id?jc.totalA:jc.totalB, lS=w.id===fA.id?jc.totalB:jc.totalA; return `${wS}-${lS}`;}).join(' · ')}</b></div>`:''}
             </div>
             ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
             ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
@@ -4914,7 +4976,7 @@ function openLiveFightViewer(ev){
         winnerId:result.winner.id, loserId:result.loser.id,
         method:result.method, decType:result.decType||null, round:result.round, time:result.time,
         fightOfNight:result.fightOfNight, performance:result.performance,
-        missedWeight: missedId||null
+        missedWeight: missedId||null, judgeScores:result.judgeScores||null
       };
       if(missedId){
         const mf=STATE.fighters.find(x=>x.id===missedId);
@@ -5685,6 +5747,11 @@ function showEventSummary(ev, completedFights){
     const streak = (w?.momentum||0);
     const methodColor = ft.result.method==='KO/TKO'?'#ef5350':ft.result.method==='Sumisión'?'#ce93d8':'#90caf9';
     const rivalry = getRivalryFights(ft.fighterA,ft.fighterB);
+    const winnerIsA = ft.result.winnerId===ft.fighterA;
+    const scorecardsHtml = (ft.result.judgeScores&&ft.result.judgeScores.length) ? ft.result.judgeScores.map(jc=>{
+      const wScore = winnerIsA?jc.totalA:jc.totalB, lScore = winnerIsA?jc.totalB:jc.totalA;
+      return `${wScore}-${lScore}`;
+    }).join(' · ') : null;
     return `
     <div style="padding:10px 0;border-bottom:1px solid var(--line);${isMain?'background:rgba(212,175,55,.04);margin:0 -10px;padding:10px':''}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -5706,6 +5773,7 @@ function showEventSummary(ev, completedFights){
         <div style="text-align:right;min-width:90px">
           <div style="font-size:.78rem;font-weight:700;color:${methodColor}">${methodLabel(ft.result)}</div>
           <div style="font-size:.72rem;color:#666">R${ft.result.round} · ${ft.result.time}</div>
+          ${scorecardsHtml?`<div style="font-size:.68rem;color:#666">📋 ${scorecardsHtml}</div>`:''}
         </div>
       </div>
     </div>`;
