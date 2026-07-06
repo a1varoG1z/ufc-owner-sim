@@ -237,7 +237,8 @@ function freshState(){
     statsHistory: {},
     milestonesReached: [],
     rivalPromotions: [],  // ligas rivales — ver seedRivalPromotions()
-    pendingNegotiations: [] // [{fighterId, rivalOfferSalary}] avisos de contrato a renovar
+    pendingNegotiations: [], // [{fighterId, rivalOfferSalary}] avisos de contrato a renovar
+    callouts: [], // [{id, callerId, targetId, divisionId, eventSeqIssued}] retos entre peleadores
   };
 }
 
@@ -277,19 +278,49 @@ function makeFighter(divisionId, gender){
     lastEventSeq:null,
     hof:false,
     rankScore:0,
-    contract: makeContract()
+    contract: makeContract(Math.round(STAT_KEYS.reduce((s,[k])=>s+stats[k],0)/STAT_KEYS.length))
   };
 }
 
 // ── Contrato: bolsa por pelea, peleas restantes, y "personalidad negociadora" ──
-function makeContract(){
+// `level` = nivel general aproximado (0-99, tipo generalScore()). Sin nivel, asume un peleador medio.
+// El salario escala con el nivel para que las estrellas cuesten de verdad y no sean gratis por azar.
+function makeContract(level){
+  const lvl = level!=null ? level : randi(45,88);
+  const salary = clamp(Math.round((6000+lvl*550+randi(-3000,3000))/1000)*1000, 5000, 999000);
+  const finishBonus = clamp(Math.round(salary*0.4/1000)*1000, 3000, 999000);
   return {
-    salary: randi(8,40)*1000,       // bolsa base por combate
-    finishBonus: randi(5,20)*1000,  // extra si gana por KO/Sumisión
+    salary,
+    finishBonus,                    // extra si gana por KO/Sumisión
     fightsLeft: randi(2,5),         // combates restantes en el contrato actual
-    demandLevel: randi(20,80),      // 0-100: cuánto exige/sube el pulso al negociar
+    demandLevel: clamp(Math.round(lvl*0.6+randi(-10,10)),5,95), // 0-100: los mejores exigen más al negociar
     loyalty: randi(20,80),          // 0-100: resistencia a irse por dinero a una rival
   };
+}
+
+/* ====================== SPONSORS ====================== */
+const SPONSOR_NAMES = ['Rekt Energy','Ironclad Supplements','Apex Gear','Titan Nutrition','Warpath Apparel',
+  'Blackout Energy','Grit Combat Wear','Northstar Bank','Momentum Insurance','Vortex Hydration','Fury Watches','Cage Fuel'];
+// Tras cada combate, un peleador puede ganar o perder un patrocinador según su reputación y el resultado.
+// El ingreso del sponsor se sim­plifica como "revuelo mediático" que suma a los ingresos del evento
+// (no se lleva una cuenta bancaria separada por peleador) — ver economía en finishEvent().
+function maybeUpdateSponsor(f, won, method){
+  const rep = f.reputation||50;
+  if(f.sponsor){
+    let dropChance = 0.04;
+    if(!won && method==='KO/TKO') dropChance += 0.14;
+    else if(!won && method==='Sumisión') dropChance += 0.08;
+    else if(!won) dropChance += 0.04;
+    if(rep<45) dropChance += 0.15;
+    if(Math.random()<dropChance){
+      logEvent(`📉 ${fName(f)} pierde el patrocinio de ${f.sponsor.name}.`);
+      f.sponsor=null;
+    }
+  } else if(rep>=58 && Math.random()<0.10+Math.max(0,(rep-58))*0.004){
+    const incomePerFight = clamp(Math.round((rep-45)*300/1000)*1000, 2000, 60000);
+    f.sponsor = {name: pick(SPONSOR_NAMES), incomePerFight};
+    logEvent(`🤝 ${fName(f)} firma patrocinio con ${f.sponsor.name} ($${incomePerFight.toLocaleString()}/combate).`);
+  }
 }
 
 const REAL_FIGHTERS = [
@@ -393,7 +424,7 @@ function makeRealFighter(rf){
     hof: false,
     rankScore:0,
     _tier: rf.tier,
-    contract: makeContract()
+    contract: {...makeContract(Math.round(STAT_KEYS.reduce((s,[k])=>s+stats[k],0)/STAT_KEYS.length)), fightsLeft:3}
   };
 }
 function STAT_KEYS_BONUS_CAP(tier){ return {legend:9, elite:5, contender:2, veteran:3}[tier]||1; }
@@ -447,7 +478,8 @@ function seedFighters(){
       if(f.chinDamage==null) f.chinDamage = Math.min((f.record.ufcKoLosses||0)*2, 15);
       // Racha empieza siempre en 0 al cargar el estado inicial
       f.momentum = 0;
-      if(!f.contract) f.contract = makeContract();
+      // Roster inicial de la UFC: todos arrancan con 3 peleas de contrato restante
+      if(!f.contract) f.contract = {...makeContract(generalScore(f)), fightsLeft:3};
     });
   } else {
     STATE.fighters = REAL_FIGHTERS.map(makeRealFighter);
@@ -1392,6 +1424,37 @@ function generateNews(fighters){
   if(STATE.newsLog.length>100) STATE.newsLog.length=100;
 }
 
+/* ====================== CALLOUTS ====================== */
+// Un peleador activo reta narrativamente a otro de su categoría — presión de matchmaking,
+// no altera stats. Si lo bookeas antes de que expire, se resuelve solo; si no, se olvida.
+function generateCallouts(eventDate){
+  if(!STATE.callouts) STATE.callouts=[];
+  if(Math.random()>0.5) return; // no siempre hay callout nuevo
+  const active = STATE.fighters.filter(f=>f.status==='active');
+  const caller = pick(active); if(!caller) return;
+  const already = STATE.callouts.some(c=>c.callerId===caller.id||c.targetId===caller.id);
+  if(already) return;
+  const pool = active.filter(f=>f.id!==caller.id && f.division===caller.division);
+  if(!pool.length) return;
+  // Prioriza retar a alguien mejor rankeado (más dramático) o a un rival si existe
+  const rival = pool.find(f=>isRival(caller.id,f.id));
+  const higherRanked = pool.filter(f=>(f.rankScore||0)>=(caller.rankScore||0)).sort((a,b)=>(a.rankScore||0)-(b.rankScore||0));
+  const target = rival || higherRanked[0] || pick(pool);
+  STATE.callouts.push({id:uid('CO'), callerId:caller.id, targetId:target.id, divisionId:caller.division, eventSeqIssued:STATE.meta.eventSeq});
+  logEvent(`📣 ${fName(caller)} reta a ${fName(target)}: "¡Te quiero a ti a continuación!"`);
+  if(STATE.callouts.length>20) STATE.callouts.shift();
+}
+// Elimina callouts ya viejos (4+ eventos sin bookearse) sin penalización — simplemente se olvidan
+function expireStaleCallouts(){
+  if(!STATE.callouts) return;
+  STATE.callouts = STATE.callouts.filter(c=>STATE.meta.eventSeq-(c.eventSeqIssued||0)<4);
+}
+// Si acabas de emparejar exactamente el callout pendiente, se marca como resuelto
+function resolveCalloutIfMatched(fAId, fBId){
+  if(!STATE.callouts) return;
+  STATE.callouts = STATE.callouts.filter(c=>!((c.callerId===fAId&&c.targetId===fBId)||(c.callerId===fBId&&c.targetId===fAId)));
+}
+
 /* ====================== 4. PRESIÓN DE DEFENSAS DE TÍTULO ====================== */
 // Devuelve avisos de posibles interinos para mostrar al usuario tras un evento
 function checkTitleDefensePressure(eventDate){
@@ -1872,8 +1935,9 @@ function createEvent(name, date){
   return ev;
 }
 
-function addFightToEvent(ev, fAId, fBId, titleId=null, isInterim=false, isMain=false, isContender=false){
-  ev.card.push({id:uid('FT'), fighterA:fAId, fighterB:fBId, titleId, isInterim, isMain, isContender, result:null});
+function addFightToEvent(ev, fAId, fBId, titleId=null, isInterim=false, isMain=false, isContender=false, weightCutA='normal', weightCutB='normal'){
+  ev.card.push({id:uid('FT'), fighterA:fAId, fighterB:fBId, titleId, isInterim, isMain, isContender, weightCutA, weightCutB, result:null});
+  resolveCalloutIfMatched(fAId, fBId);
 }
 
 function simulateEvent(ev){
@@ -1893,7 +1957,7 @@ function simulateEvent(ev){
       mf.rankScore=Math.max(0,(mf.rankScore||0)-15);
       if(STATE.atpPoints) STATE.atpPoints[missedId]=Math.round((STATE.atpPoints[missedId]||0)*0.85);
     }
-    const fAm=momentumBonus(fA), fBm=momentumBonus(fB);
+    const fAm=momentumBonus(fA)+weightCutBonus(fight,fA.id,missedId), fBm=momentumBonus(fB)+weightCutBonus(fight,fB.id,missedId);
     const fAb={...fA,stats:{...fA.stats,...Object.fromEntries(Object.entries(fA.stats).map(([k,v])=>[k,Math.min(99,v+fAm)]))}};
     const fBb={...fB,stats:{...fB.stats,...Object.fromEntries(Object.entries(fB.stats).map(([k,v])=>[k,Math.min(99,v+fBm)]))}};
     const result = simulateFight(fAb, fBb, {rounds: isTitle?5:3});
@@ -2035,6 +2099,20 @@ function tplDashboard(){
     }).filter(Boolean).join('')}
   </div>`:''}
 
+  <!-- Callouts -->
+  ${(STATE.callouts||[]).length?`
+  <div class="card" style="padding:10px 14px;border-left:3px solid #ff8a65">
+    <div style="font-size:.65rem;color:#ff8a65;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">📣 Callouts (${STATE.callouts.length})</div>
+    ${STATE.callouts.map(c=>{
+      const caller=STATE.fighters.find(x=>x.id===c.callerId), target=STATE.fighters.find(x=>x.id===c.targetId);
+      if(!caller||!target) return '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;gap:6px">
+        <span style="font-size:.78rem"><b>${fName(caller)}</b> reta a <b>${fName(target)}</b></span>
+        <button class="btn small primary bookCalloutBtn" data-caller="${caller.id}" data-target="${target.id}" style="font-size:.68rem;white-space:nowrap">📅 Bookear</button>
+      </div>`;
+    }).filter(Boolean).join('')}
+  </div>`:''}
+
   <!-- Panel de cinturones visuales -->
   <div class="card" style="padding:10px 14px">
     <div style="font-size:.65rem;color:#d4af37;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">🥇 Cinturones activos</div>
@@ -2143,6 +2221,18 @@ function bindDashboard(){
   };
   document.querySelectorAll('.negotiateBtn').forEach(btn=>{
     btn.onclick=e=>{ e.stopPropagation(); openContractNegotiation(btn.dataset.id); };
+  });
+  document.querySelectorAll('.bookCalloutBtn').forEach(btn=>{
+    btn.onclick=e=>{
+      e.stopPropagation();
+      const callerId=btn.dataset.caller, targetId=btn.dataset.target;
+      const caller=STATE.fighters.find(x=>x.id===callerId), target=STATE.fighters.find(x=>x.id===targetId);
+      if(!caller||!target) return;
+      const ev = createEvent(`${caller.name} vs ${target.name}`, addDays(STATE.meta.currentDate,21));
+      addFightToEvent(ev, callerId, targetId);
+      saveLocal(); UI.tab='events'; render();
+      toast(`📅 Evento creado: ${fName(caller)} vs ${fName(target)}`);
+    };
   });
 }
 
@@ -2604,7 +2694,7 @@ function openFighterModal(fid, context){
     const signingCost=Math.round((10000+generalScore(f)*600)/1000)*1000;
     if((STATE.meta.budget||0)<signingCost){ toast(`❌ Presupuesto insuficiente (necesitas $${signingCost.toLocaleString()})`); return; }
     f.status='active'; f._scoutExpires=null;
-    if(!f.contract) f.contract=makeContract();
+    if(!f.contract) f.contract=makeContract(generalScore(f));
     STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
     // Remove from scoutCandidates if present
     if(STATE.scoutCandidates) STATE.scoutCandidates=STATE.scoutCandidates.filter(c=>c.id!==f.id);
@@ -2855,6 +2945,25 @@ function tplEventBuilder(ev){
     </div>
     <div class="probDisplay muted" style="text-align:center;font-size:.8rem;margin:2px 0 2px"></div>
     <div class="contextAlerts" style="margin:0 0 6px"></div>
+    <div class="row" style="font-size:.75rem">
+      <div style="flex:1">
+        <label style="margin-top:0">⚖️ Corte de peso A</label>
+        <select class="evWeightCutA">
+          <option value="safe">🛡️ Seguro</option>
+          <option value="normal" selected>⚖️ Normal</option>
+          <option value="aggressive">🔥 Agresivo</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label style="margin-top:0">⚖️ Corte de peso B</label>
+        <select class="evWeightCutB">
+          <option value="safe">🛡️ Seguro</option>
+          <option value="normal" selected>⚖️ Normal</option>
+          <option value="aggressive">🔥 Agresivo</option>
+        </select>
+      </div>
+    </div>
+    <p class="muted" style="font-size:.68rem;margin:2px 0 8px">Agresivo: más riesgo de no dar el peso, pero si lo da rehidrata con ventaja física (+stats). Seguro: casi no falla, sin ventaja.</p>
     <div class="row">
       <select class="evTitle"><option value="">Sin título en juego</option>
         ${STATE.titles.filter(t=>!t.vacated).map(t=>`<option value="${t.id}">${titleIcon(t)} ${fName(t)}${t.holderId?'':' (vacante)'}</option>`).join('')}
@@ -2876,6 +2985,12 @@ function tplEventBuilder(ev){
             <div><b>${idx+1}.</b> ${a?a.name:'?'} <span class="vs">VS</span> ${b?b.name:'?'} ${a&&b&&isRival(a.id,b.id)?'<span class="pill" style="font-size:.65rem;background:#7b1fa2">⚔️ REVANCHA</span>':''}</div>
             ${t?`<div class="muted" style="font-size:.75rem">${titleIcon(t)} ${fName(t)}${ft.isInterim?' (interino)':''}</div>`:''}
             ${ft.isContender?`<div style="font-size:.7rem;color:#82b1ff">🥊 Pelea de contendiente</div>`:''}
+            ${(()=>{
+              const wcLabel={safe:'🛡️ Seguro',normal:null,aggressive:'🔥 Agresivo'};
+              const wA=wcLabel[ft.weightCutA]||null, wB=wcLabel[ft.weightCutB]||null;
+              if(!wA&&!wB) return '';
+              return `<div style="font-size:.68rem;color:#888">⚖️ Corte: ${a?a.name.split(' ').pop():'A'} ${wA||'Normal'} · ${b?b.name.split(' ').pop():'B'} ${wB||'Normal'}</div>`;
+            })()}
             ${(()=>{
               if(!a||!b) return '';
               const rm=STATE.rematches||{};
@@ -3075,7 +3190,9 @@ function bindEvents(){
       }
 
       const isContender = card.querySelector('.evContender')?.checked||false;
-      addFightToEvent(ev, aId, bId, titleId, isInterim, false, isContender);
+      const wcA = card.querySelector('.evWeightCutA')?.value||'normal';
+      const wcB = card.querySelector('.evWeightCutB')?.value||'normal';
+      addFightToEvent(ev, aId, bId, titleId, isInterim, false, isContender, wcA, wcB);
       saveLocal(); render(); toast('Combate añadido ✅');
     };
   });
@@ -3398,7 +3515,7 @@ function avatarHtml(f, size=90, dim=false){
 function openContractNegotiation(fighterId){
   const f = STATE.fighters.find(x=>x.id===fighterId);
   if(!f) return;
-  if(!f.contract) f.contract = makeContract();
+  if(!f.contract) f.contract = makeContract(generalScore(f));
   const pending = (STATE.pendingNegotiations||[]).find(n=>n.fighterId===fighterId);
   const rivalOffer = pending?.rivalOfferSalary || null;
   const maxRounds = 3;
@@ -3490,8 +3607,14 @@ function openLiveFightViewer(ev){
     const fB=STATE.fighters.find(x=>x.id===fight.fighterB);
     if(!fA||!fB) return null;
     const isTitle = !!fight.titleId;
-    const r = simulateFight(fA, fB, {rounds:isTitle?5:3});
-    return {fight, fA, fB, result:r, narrative: generateFightNarrative(fA,fB,r)};
+    // Peso y racha: el visor en vivo usaba las stats "en crudo" y nunca comprobaba el peso —
+    // ahora se comporta igual que "Simular rápido" (mismo bonus de racha/corte de peso).
+    const missedId = checkMissWeight(fight);
+    const fAm=momentumBonus(fA)+weightCutBonus(fight,fA.id,missedId), fBm=momentumBonus(fB)+weightCutBonus(fight,fB.id,missedId);
+    const fAb=fAm?{...fA,stats:{...fA.stats,...Object.fromEntries(Object.entries(fA.stats).map(([k,v])=>[k,Math.min(99,v+fAm)]))}}:fA;
+    const fBb=fBm?{...fB,stats:{...fB.stats,...Object.fromEntries(Object.entries(fB.stats).map(([k,v])=>[k,Math.min(99,v+fBm)]))}}:fB;
+    const r = simulateFight(fAb, fBb, {rounds:isTitle?5:3});
+    return {fight, fA, fB, result:r, narrative: generateFightNarrative(fA,fB,r), missedId};
   }).filter(Boolean);
 
   let fightIdx = 0; // 0 = first prelim (card reversed), last index = main event
@@ -3657,11 +3780,21 @@ function openLiveFightViewer(ev){
     sub_top:{head:[24,16,6],torso:[24,22,28,40], armL:[28,40,19,33], armR:[28,40,33,30], legL:[28,40,18,50], legR:[28,40,24,54]},
     sub_bottom:{head:[12,50,6],torso:[12,50,26,48], armL:[12,50,5,44], armR:[12,50,19,41], legL:[26,48,33,44], legR:[26,48,30,55]},
   };
+  // Monigote de "forma rellena": trazos gruesos de extremo redondeado (se leen como cápsulas
+  // sólidas, no como líneas finas) + un pequeño guante/bota en la punta de cada extremidad.
   function fvFigureSvg(pose){
     const p=FV_POSES[pose]||FV_POSES.idle;
     const [hx,hy,hr]=p.head;
-    const line=s=>`<line x1="${s[0]}" y1="${s[1]}" x2="${s[2]}" y2="${s[3]}" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>`;
-    return `<svg class="fv-fig" viewBox="0 0 34 64" width="34" height="64">${line(p.legL)}${line(p.legR)}${line(p.armL)}${line(p.armR)}${line(p.torso)}<circle cx="${hx}" cy="${hy}" r="${hr}" fill="currentColor"/></svg>`;
+    const limb=(s,w)=>`<line x1="${s[0]}" y1="${s[1]}" x2="${s[2]}" y2="${s[3]}" stroke="currentColor" stroke-width="${w}" stroke-linecap="round"/>`;
+    const tip=(s,r)=>`<circle cx="${s[2]}" cy="${s[3]}" r="${r}" fill="currentColor"/>`;
+    return `<svg class="fv-fig" viewBox="0 0 34 64" width="34" height="64">
+      ${limb(p.legL,8.5)}${limb(p.legR,8.5)}
+      ${limb(p.armL,7)}${limb(p.armR,7)}
+      ${limb(p.torso,12)}
+      ${tip(p.armL,4)}${tip(p.armR,4)}
+      ${tip(p.legL,4.2)}${tip(p.legR,4.2)}
+      <circle cx="${hx}" cy="${hy}" r="${hr}" fill="currentColor"/>
+    </svg>`;
   }
   // Elige la pose de cada peleador según la posición resultante, quién actuó, y si esta acción
   // le deja grogui (recibe golpe sin responder) o lo tumba (knockdown/finalización)
@@ -4174,12 +4307,24 @@ function openLiveFightViewer(ev){
 
   function applyAllAndFinish(){
     clearTicker();
-    results.forEach(({fight, result})=>{
+    results.forEach(({fight, result, missedId})=>{
+      const isTitle=!!fight.titleId;
+      const blockedChampChange = isTitle && missedId && result.winner.id===missedId;
       fight.result = {
         winnerId:result.winner.id, loserId:result.loser.id,
-        method:result.method, round:result.round, time:result.time,
-        fightOfNight:result.fightOfNight, performance:result.performance
+        method:result.method, decType:result.decType||null, round:result.round, time:result.time,
+        fightOfNight:result.fightOfNight, performance:result.performance,
+        missedWeight: missedId||null, blockedChampChange
       };
+      if(missedId){
+        const mf=STATE.fighters.find(x=>x.id===missedId);
+        if(mf){
+          fight.missedWeight=missedId;
+          logEvent(`⚖️ ${fName(mf)} no da el peso — el combate se realiza pero el título no puede cambiar de manos si ${fName(mf)} gana.`);
+          mf.rankScore=Math.max(0,(mf.rankScore||0)-15);
+          if(STATE.atpPoints) STATE.atpPoints[missedId]=Math.round((STATE.atpPoints[missedId]||0)*0.85);
+        }
+      }
       const fAf=STATE.fighters.find(x=>x.id===fight.fighterA);
       const fBf=STATE.fighters.find(x=>x.id===fight.fighterB);
       if(fAf&&fBf){
@@ -4269,7 +4414,12 @@ function revertEvent(ev){
 }
 
 function applyFightResultToState(fight, fA, fB, result, ev){
-  const winner=result.winner, loser=result.loser;
+  // IMPORTANTE: result.winner/loser pueden ser clones temporales (simulateEvent les aplica
+  // el bonus de racha a las stats antes de simular), así que SIEMPRE resolvemos ganador/perdedor
+  // a los objetos reales fA/fB por id — si no, reasignaciones directas de propiedad
+  // (reputación, sponsor...) se pierden silenciosamente al descartarse el clon.
+  const winner = fA.id===result.winner.id ? fA : fB;
+  const loser = fA.id===result.loser.id ? fA : fB;
   // Actualizar stats de carrera
   if(result.fightStatsA) updateCareerStats(fA, result.fightStatsA, fA.id===winner.id);
   if(result.fightStatsB) updateCareerStats(fB, result.fightStatsB, fB.id===winner.id);
@@ -4290,13 +4440,16 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   updateReputation(winner, fight.titleId?12: result.method!=='Decisión'?6:3);
   updateReputation(loser, fight.titleId?-8:-3);
   if(result.performance) winner.bonuses.performanceOfNight++;
+  // Sponsors: pueden llegar o irse según reputación y resultado
+  maybeUpdateSponsor(winner, true, result.method);
+  maybeUpdateSponsor(loser, false, result.method);
   // Contrato: consumir una pelea del contrato de ambos peleadores
   [winner, loser].forEach(pf=>{
-    if(!pf.contract) pf.contract = makeContract();
+    if(!pf.contract) pf.contract = makeContract(generalScore(pf));
     pf.contract.fightsLeft = Math.max(0, (pf.contract.fightsLeft||0)-1);
     if(pf.contract.fightsLeft<=0 && pf.status==='active' && !(STATE.pendingNegotiations||[]).some(n=>n.fighterId===pf.id)){
       if(!STATE.pendingNegotiations) STATE.pendingNegotiations=[];
-      STATE.pendingNegotiations.push({fighterId:pf.id, rivalOfferSalary: computeRivalInterest(pf)});
+      STATE.pendingNegotiations.push({fighterId:pf.id, rivalOfferSalary: computeRivalInterest(pf), eventSeqCreated: STATE.meta.eventSeq});
       logEvent(`💼 El contrato de ${fName(pf)} llega a su fin — hay que renegociar.`);
     }
   });
@@ -4550,6 +4703,56 @@ function giveAwardsForYear(awardYear){
     performanceOfYear:potyFight?{fA:potyFight.fighterA,fB:potyFight.fighterB}:null,
   });
   STATE.meta.lastAwardYear=awardYear;
+  return true;
+}
+
+/* ====================== CEREMONIA DE PREMIOS (modal) ====================== */
+// Se llama al cerrar el resumen del evento — si se acaban de repartir premios de algún
+// año, encadena la ceremonia (una pantalla por año) antes de volver al juego.
+function closeEventSummaryAndMaybeShowAwards(evId){
+  document.getElementById('modalRoot').innerHTML='';
+  const ev = STATE.events.find(x=>x.id===evId);
+  const years = (ev&&ev._newAwardYears)||[];
+  if(ev) ev._newAwardYears=[];
+  if(years.length) showAwardsCeremonyQueue(years.slice());
+}
+function showAwardsCeremonyQueue(years){
+  if(!years.length){ document.getElementById('modalRoot').innerHTML=''; return; }
+  const year = years.shift();
+  openAwardsCeremony(year, ()=>showAwardsCeremonyQueue(years));
+}
+function openAwardsCeremony(year, onClose){
+  const a = (STATE.awards||[]).find(x=>x.year===year);
+  if(!a){ if(onClose) onClose(); return; }
+  const fOf = a.fighterOfYear && STATE.fighters.find(x=>x.id===a.fighterOfYear);
+  const row = (icon, label, color, content) => content ? `
+    <div style="display:flex;align-items:center;gap:12px;background:#0d0d0d;border:1px solid #1e1e1e;border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="font-size:1.8rem">${icon}</div>
+      <div style="flex:1">
+        <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:1px;color:${color}">${label}</div>
+        <div style="font-size:.88rem;font-weight:700;margin-top:2px">${content}</div>
+      </div>
+    </div>` : '';
+  const nameOf = id => { const f=STATE.fighters.find(x=>x.id===id); return f?fName(f):'?'; };
+  const fotyHtml = row('🏆','Peleador del Año','#d4af37', fOf?fName(fOf):null);
+  const fightHtml = row('🥊','Pelea del Año','#ffd700', a.fightOfYear?`${nameOf(a.fightOfYear.fA)} vs ${nameOf(a.fightOfYear.fB)}`:null);
+  const koHtml = row('💥','KO del Año','#ef5350', a.koOfYear?`${nameOf(a.koOfYear.fA)} def. ${nameOf(a.koOfYear.fB)} · R${a.koOfYear.round} ${a.koOfYear.time}`:null);
+  const subHtml = row('🤼','Sumisión del Año','#ce93d8', a.subOfYear?`${nameOf(a.subOfYear.fA)} def. ${nameOf(a.subOfYear.fB)} · R${a.subOfYear.round} ${a.subOfYear.time}`:null);
+  const potyHtml = row('⭐','Actuación del Año','#82b1ff', a.performanceOfYear?`${nameOf(a.performanceOfYear.fA)} vs ${nameOf(a.performanceOfYear.fB)}`:null);
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-bg" id="modalBg">
+    <div class="modal" style="max-width:480px;text-align:center">
+      <div style="background:linear-gradient(90deg,#7a5c00,#d4af37,#7a5c00);color:#1a1300;font-weight:900;padding:12px;border-radius:10px;margin-bottom:14px;font-size:1.1rem;letter-spacing:.5px">
+        🏆 CEREMONIA DE PREMIOS ${year}
+      </div>
+      ${fOf?`<div style="margin-bottom:10px">${avatarHtml(fOf,72)}</div>`:''}
+      <div style="text-align:left">
+        ${fotyHtml}${fightHtml}${koHtml}${subHtml}${potyHtml}
+      </div>
+      <button class="btn primary full" id="awardsCeremonyNext" style="margin-top:8px;padding:12px">Continuar →</button>
+    </div>
+  </div>`;
+  document.getElementById('awardsCeremonyNext').onclick=()=>{ if(onClose) onClose(); else document.getElementById('modalRoot').innerHTML=''; };
 }
 
 function finishEvent(ev){
@@ -4577,9 +4780,10 @@ function finishEvent(ev){
   // ── PREMIOS ANUALES — se entregan cuando se supera el 31 de diciembre ────────
   const evYear = parseInt((ev.date||'2025').slice(0,4));
   const lastAwardYear = STATE.meta.lastAwardYear ?? (evYear - 2);
+  ev._newAwardYears = [];
   if(evYear > lastAwardYear){
     for(let awardYear = lastAwardYear + 1; awardYear < evYear; awardYear++){
-      giveAwardsForYear(awardYear);
+      if(giveAwardsForYear(awardYear)) ev._newAwardYears.push(awardYear);
     }
   }
 
@@ -4647,15 +4851,16 @@ function finishEvent(ev){
     const fA=STATE.fighters.find(x=>x.id===ft.fighterA), fB=STATE.fighters.find(x=>x.id===ft.fighterB);
     if(!fA||!fB) return;
     const avgRep=((fA.reputation||50)+(fB.reputation||50))/2;
-    let fightRevenue=30000+avgRep*900;
+    let fightRevenue=45000+avgRep*1000;
     if(ft.titleId) fightRevenue*=1.8;
     if(r.isFOTN) fightRevenue*=1.15;
     eventRevenue+=Math.round(fightRevenue);
     [fA,fB].forEach(pf=>{
-      if(!pf.contract) pf.contract=makeContract();
+      if(!pf.contract) pf.contract=makeContract(generalScore(pf));
       let purse=pf.contract.salary||0;
       if(r.winnerId===pf.id && r.method!=='Decisión') purse+=(pf.contract.finishBonus||0);
       totalPurses+=purse;
+      if(pf.sponsor) eventRevenue+=(pf.sponsor.incomePerFight||0);
     });
   });
   STATE.meta.budget=(STATE.meta.budget||0)+eventRevenue-totalPurses;
@@ -4676,11 +4881,25 @@ function finishEvent(ev){
   // 9. Noticias narrativas
   generateNews(STATE.fighters);
 
+  // Callouts entre peleadores
+  generateCallouts(ev.date);
+  expireStaleCallouts();
+
   // Scouting periódico (cada 3 eventos)
   if(STATE.meta.eventSeq % 3 === 0) generateScoutCandidates();
 
   // Las promotoras rivales avanzan un turno al mismo ritmo que tú
   advanceRivalPromotions(ev.date);
+
+  // Negociaciones olvidadas: si llevan 5+ eventos sin atender, se resuelven solas
+  // (el peleador renueva a sus términos actuales) para que la lista no crezca sin límite.
+  (STATE.pendingNegotiations||[]).slice().forEach(n=>{
+    if(STATE.meta.eventSeq-(n.eventSeqCreated||0)>=5){
+      const pf=STATE.fighters.find(x=>x.id===n.fighterId);
+      STATE.pendingNegotiations=STATE.pendingNegotiations.filter(x=>x!==n);
+      if(pf){ pf.contract.fightsLeft=3; logEvent(`📄 ${fName(pf)} renueva en silencio a sus términos actuales (nadie atendió la negociación).`); }
+    }
+  });
 
   refreshRankings();
   saveRankingSnapshot(ev.id, ev.date);
@@ -4766,12 +4985,12 @@ function showEventSummary(ev, completedFights){
   const news = (STATE.newsLog||[]).slice(0,3).map(n=>`<div style="font-size:.75rem;padding:4px 0;border-bottom:1px solid var(--line);color:#aaa;font-style:italic">📰 ${n.msg}</div>`).join('');
 
   document.getElementById('modalRoot').innerHTML=`
-  <div class="modal-bg" id="modalBg" style="align-items:flex-start;padding:0;background:rgba(0,0,0,.88)" onclick="if(event.target===this)this.parentElement.innerHTML=''">
+  <div class="modal-bg" id="modalBg" style="align-items:flex-start;padding:0;background:rgba(0,0,0,.88)" onclick="if(event.target===this)closeEventSummaryAndMaybeShowAwards('${ev.id}')">
     <div style="width:100%;max-width:480px;margin:0 auto;height:100vh;display:flex;flex-direction:column;background:#111;border-left:1px solid #222;border-right:1px solid #222">
 
       <!-- Cabecera FIJA con X visible siempre -->
       <div style="background:linear-gradient(135deg,#1a1a2e,#0d0d1a);padding:14px 16px 10px;border-bottom:1px solid #222;flex-shrink:0;position:relative">
-        <button onclick="document.getElementById('modalRoot').innerHTML=''" style="position:absolute;top:10px;right:12px;background:#2a2a2a;border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>
+        <button onclick="closeEventSummaryAndMaybeShowAwards('${ev.id}')" style="position:absolute;top:10px;right:12px;background:#2a2a2a;border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>
         <div style="font-size:.65rem;color:#666;text-transform:uppercase;letter-spacing:1.5px">Resumen oficial</div>
         <div style="font-size:1.3rem;font-weight:900;color:#fff;margin:2px 0">${fName(ev)}</div>
         <div style="font-size:.75rem;color:#888">${fmtDate(ev.date)} · ${completedFights.length} combates · ${completedFights.filter(f=>f.result?.method!=='Decisión').length} finalizaciones</div>
@@ -4800,7 +5019,7 @@ function showEventSummary(ev, completedFights){
 
       <!-- Botón FIJO al fondo -->
       <div style="flex-shrink:0;padding:12px 16px;border-top:1px solid #222;background:#111">
-        <button onclick="document.getElementById('modalRoot').innerHTML=''" style="width:100%;background:#d4af37;color:#1a1300;border:none;border-radius:8px;padding:14px;font-size:1rem;font-weight:800;cursor:pointer">
+        <button onclick="closeEventSummaryAndMaybeShowAwards('${ev.id}')" style="width:100%;background:#d4af37;color:#1a1300;border:none;border-radius:8px;padding:14px;font-size:1rem;font-weight:800;cursor:pointer">
           Continuar →
         </button>
       </div>
@@ -4826,12 +5045,21 @@ function momentumBonus(f){
   return 6;
 }
 
-/* ====================== MISS WEIGHT / SOBREPESO ====================== */
+/* ====================== MISS WEIGHT / SOBREPESO / CORTE DE PESO ====================== */
+// Cada peleador de un combate puede cortar peso Seguro/Normal/Agresivo (fight.weightCutA/B).
+// Agresivo sube el riesgo de no dar el peso, pero si lo da, rehidrata con ventaja física (+stats).
+function weightCutMissProb(mode){ return mode==='safe'?0.02 : mode==='aggressive'?0.16 : 0.06; }
+function weightCutBonus(fight, fighterId, missedId){
+  if(!fighterId || missedId===fighterId) return 0;
+  const mode = fight.fighterA===fighterId ? fight.weightCutA : fight.weightCutB;
+  return mode==='aggressive' ? 3 : 0;
+}
 // Lllamado antes de simular un combate. Devuelve qué peleador faltó al peso (o null).
 function checkMissWeight(fight){
-  const MISS_PROB = 0.06; // 6% por peleador
-  const a = Math.random()<MISS_PROB? fight.fighterA : null;
-  const b = !a && Math.random()<MISS_PROB? fight.fighterB : null;
+  const probA = weightCutMissProb(fight.weightCutA||'normal');
+  const probB = weightCutMissProb(fight.weightCutB||'normal');
+  const a = Math.random()<probA? fight.fighterA : null;
+  const b = !a && Math.random()<probB? fight.fighterB : null;
   return a||b||null;
 }
 
@@ -5760,7 +5988,7 @@ function bindScout(){
       const divSel=document.querySelector(`.scoutDivSel[data-id="${btn.dataset.id}"]`);
       const divId=divSel?divSel.value:(c.division||DIVISIONS[0].id);
       c.division=divId; c.status='active'; c._scoutExpires=null;
-      if(!c.contract) c.contract=makeContract();
+      if(!c.contract) c.contract=makeContract(generalScore(c));
       STATE.meta.budget=(STATE.meta.budget||0)-signingCost;
       if(!STATE.fighters.find(x=>x.id===c.id)) STATE.fighters.push(c);
       STATE.scoutCandidates=(STATE.scoutCandidates||[]).filter(x=>x.id!==c.id);
@@ -6059,7 +6287,7 @@ function tplBonusesForm(f){
 }
 
 function tplContractForm(f){
-  const c = f.contract||makeContract();
+  const c = f.contract||makeContract(generalScore(f));
   return `
   <h3>💰 Contrato de ${fName(f)}</h3>
   <div class="grid2">
@@ -6073,6 +6301,17 @@ function tplContractForm(f){
   <label>Lealtad (0-100) — resistencia a irse por dinero a una rival</label>
   <input type="number" min="0" max="100" id="fld_loyalty" value="${c.loyalty}">
   <button class="btn primary full" id="saveContractBtn" style="margin-top:8px">Guardar contrato</button>
+
+  <h4 style="margin-top:14px">🤝 Patrocinador</h4>
+  ${f.sponsor?`<p class="muted" style="font-size:.78rem">Patrocinado por <b>${f.sponsor.name}</b> — $${f.sponsor.incomePerFight.toLocaleString()}/combate.</p>`:'<p class="muted" style="font-size:.78rem">Sin patrocinador actualmente.</p>'}
+  <div class="grid2">
+    <div><label>Nombre</label><input id="fld_sponsorName" value="${f.sponsor?.name||''}" placeholder="Sin patrocinador"></div>
+    <div><label>Ingreso por combate ($)</label><input type="number" min="0" step="1000" id="fld_sponsorIncome" value="${f.sponsor?.incomePerFight||0}"></div>
+  </div>
+  <div class="row">
+    <button class="btn small primary full" id="saveSponsorBtn">💾 Guardar patrocinador</button>
+    ${f.sponsor?'<button class="btn small danger full" id="removeSponsorBtn">✕ Quitar patrocinador</button>':''}
+  </div>
   `;
 }
 
@@ -6514,13 +6753,30 @@ function bindEditor(){
   const saveContractBtn = document.getElementById('saveContractBtn');
   if(saveContractBtn) saveContractBtn.onclick=()=>{
     const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
-    if(!f.contract) f.contract = makeContract();
+    if(!f.contract) f.contract = makeContract(generalScore(f));
     f.contract.salary = parseInt(document.getElementById('fld_salary').value)||0;
     f.contract.finishBonus = parseInt(document.getElementById('fld_finishBonus').value)||0;
     f.contract.fightsLeft = clamp(parseInt(document.getElementById('fld_fightsLeft').value)||0,0,20);
     f.contract.demandLevel = clamp(parseInt(document.getElementById('fld_demandLevel').value)||0,0,100);
     f.contract.loyalty = clamp(parseInt(document.getElementById('fld_loyalty').value)||0,0,100);
     saveLocal(); toast('Contrato guardado ✅');
+  };
+
+  // Guardar / quitar patrocinador
+  const saveSponsorBtn = document.getElementById('saveSponsorBtn');
+  if(saveSponsorBtn) saveSponsorBtn.onclick=()=>{
+    const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+    const name = document.getElementById('fld_sponsorName').value.trim();
+    const income = parseInt(document.getElementById('fld_sponsorIncome').value)||0;
+    if(!name){ toast('Ponle un nombre al patrocinador','⚠️'); return; }
+    f.sponsor = {name, incomePerFight: Math.max(0,income)};
+    saveLocal(); render(); toast('Patrocinador guardado ✅');
+  };
+  const removeSponsorBtn = document.getElementById('removeSponsorBtn');
+  if(removeSponsorBtn) removeSponsorBtn.onclick=()=>{
+    const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
+    f.sponsor = null;
+    saveLocal(); render(); toast('Patrocinador eliminado');
   };
 
   // Guardar presupuesto
@@ -6599,7 +6855,7 @@ function bindEditor(){
       record:{wins:rf.record?.wins||0,losses:rf.record?.losses||0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0,ufcFights:0,ufcWins:0,ufcLosses:0,ufcKoWins:0,ufcSubWins:0,ufcDecWins:0,ufcKoLosses:0,ufcSubLosses:0,ufcDecLosses:0},
       imageUrl:null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
       fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation:50,
-      contract: makeContract(),
+      contract: makeContract(generalScore(rf)),
     });
     saveLocal(); render(); toast(`${rf.name} fichado a tu roster ✅`);
   };
@@ -6979,8 +7235,9 @@ async function init(){
   // Migración: partidas guardadas antes de contratos/promotoras rivales/presupuesto
   if(STATE.meta.budget==null) STATE.meta.budget = 5000000;
   if(!STATE.pendingNegotiations) STATE.pendingNegotiations = [];
-  STATE.fighters.forEach(f=>{ if(!f.contract) f.contract = makeContract(); });
+  STATE.fighters.forEach(f=>{ if(!f.contract) f.contract = makeContract(generalScore(f)); });
   if(!STATE.rivalPromotions || !STATE.rivalPromotions.length) seedRivalPromotions();
+  if(!STATE.callouts) STATE.callouts = [];
   // Garantizar snapshot inicial para el gráfico de evolución de atributos
   if(!STATE.statsHistory) STATE.statsHistory={};
   STATE.fighters.forEach(f=>{
