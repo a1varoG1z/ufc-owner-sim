@@ -5039,13 +5039,15 @@ function finishEvent(ev){
     const r=ft.result; if(!r) return;
     const fA=STATE.fighters.find(x=>x.id===ft.fighterA), fB=STATE.fighters.find(x=>x.id===ft.fighterB);
     if(!fA||!fB) return;
-    // Los ingresos se atan directamente a las bolsas reales que se están pagando (con un margen
-    // sano encima), en vez de una curva de fama independiente — así el margen se mantiene estable
-    // sin importar lo cara que sea la estrella, y financia automáticamente contratos de superestrella.
-    const salaryA=fA.contract?.salary||0, salaryB=fB.contract?.salary||0;
-    const expectedBonus=0.2*(((fA.contract?.finishBonus||0)+(fB.contract?.finishBonus||0))/2);
-    let fightRevenue=(salaryA+salaryB+expectedBonus)*1.15+15000;
-    if(ft.titleId) fightRevenue*=1.35;
+    // Los ingresos se calculan por el valor de mercado "justo" del peleador (fama/nivel), NO por
+    // lo que realmente cobra — así, si el jugador le paga de más respecto a su tirón real, ese
+    // exceso sale directamente del margen (decisión mala = pierdes dinero), y si negocia una
+    // bolsa por debajo de su valor, el margen mejora. Esto mantiene el negocio sano a cualquier
+    // escala de estrellato sin blindar al jugador de sus propias decisiones de contratación.
+    const fairPurse=(level,rep)=>{ const t=starPower(level,rep)/100; return (10000+Math.pow(t,5)*1000000)*1.08; };
+    const fairA=fairPurse(generalScore(fA),fA.reputation), fairB=fairPurse(generalScore(fB),fB.reputation);
+    let fightRevenue=(fairA+fairB)*1.13+12000;
+    if(ft.titleId) fightRevenue*=1.25;
     if(r.isFOTN) fightRevenue*=1.15;
     eventRevenue+=Math.round(fightRevenue);
     [fA,fB].forEach(pf=>{
@@ -5091,13 +5093,20 @@ function finishEvent(ev){
   // Las promotoras rivales avanzan un turno al mismo ritmo que tú
   advanceRivalPromotions(ev.date);
 
-  // Negociaciones olvidadas: si llevan 5+ eventos sin atender, se resuelven solas
-  // (el peleador renueva a sus términos actuales) para que la lista no crezca sin límite.
+  // Negociaciones olvidadas: si llevan 5+ eventos sin atender, se resuelven solas al valor de
+  // mercado actual del peleador (no a su tarifa antigua) — así ignorar la negociación no genera
+  // una ventaja económica pasiva por dejar a una estrella en ascenso con contrato de novato.
   (STATE.pendingNegotiations||[]).slice().forEach(n=>{
     if(STATE.meta.eventSeq-(n.eventSeqCreated||0)>=5){
       const pf=STATE.fighters.find(x=>x.id===n.fighterId);
       STATE.pendingNegotiations=STATE.pendingNegotiations.filter(x=>x!==n);
-      if(pf){ pf.contract.fightsLeft=3; logEvent(`📄 ${fName(pf)} renueva en silencio a sus términos actuales (nadie atendió la negociación).`); }
+      if(pf){
+        if(!pf.contractHistory) pf.contractHistory=[];
+        pf.contractHistory.push({salary:pf.contract.salary, finishBonus:pf.contract.finishBonus, fightsLeft:pf.contract.fightsLeft, signedDate:pf.contract.signedDate||null, endedDate:ev.date});
+        const fresh=makeContract(generalScore(pf), pf.reputation);
+        pf.contract.salary=fresh.salary; pf.contract.finishBonus=fresh.finishBonus; pf.contract.fightsLeft=3; pf.contract.signedDate=ev.date;
+        logEvent(`📄 ${fName(pf)} renueva en silencio a valor de mercado ($${fresh.salary.toLocaleString()}/pelea) — nadie atendió la negociación.`);
+      }
     }
   });
 
