@@ -2005,9 +2005,14 @@ function goatScore(f){
     weightedTitleDays += days * w;
   });
 
+  // Los premios ANUALES (Peleador/Pelea/KO/Sumisión/Actuación del Año) no contaban nada aquí —
+  // solo los bonos por combate (POTN/FOTN de una noche concreta). Un Peleador del Año pesa casi
+  // tanto como un reinado de título; los otros premios anuales, más que su equivalente nocturno.
   let score = wins*1.4 - losses*1.0 + ufcKoWinsOf(f)*0.4 + ufcSubWinsOf(f)*0.4 +
     weightedDefenses*12 + weightedReigns*14 + weightedTitleDays*0.02 +
-    f.bonuses.performanceOfNight*1.2 + f.bonuses.fightOfNight*0.8;
+    f.bonuses.performanceOfNight*1.2 + f.bonuses.fightOfNight*0.8 +
+    (f.bonuses.fighterOfYear||0)*8 + (f.bonuses.fightOfYear||0)*3 + (f.bonuses.koOfYear||0)*3 +
+    (f.bonuses.subOfYear||0)*3 + (f.bonuses.performanceOfYear||0)*3;
   if(multiDiv>1) score += (multiDiv-1)*25; // bonus por campeón en más de una categoría (valioso, pero no debe pesar más que defender el título muchas veces)
   // Sin haber sido campeón nunca (ni siquiera interino), el legado pesa mucho menos
   if(reigns.length===0) score *= 0.45;
@@ -2188,6 +2193,7 @@ function simulateEvent(ev){
       fight.missedWeight=missedId;
       logEvent(`⚖️ ${fName(mf)} no da el peso — el combate se realiza igualmente, pero ${fName(mf)} no podrá ganar/retener el título si gana el combate.`);
       mf.rankScore=Math.max(0,(mf.rankScore||0)-15);
+      mf.missedWeightCount=(mf.missedWeightCount||0)+1;
       if(STATE.atpPoints) STATE.atpPoints[missedId]=Math.round((STATE.atpPoints[missedId]||0)*0.85);
     }
     const fAm=momentumBonus(fA)+weightCutBonus(fight,fA.id,missedId), fBm=momentumBonus(fB)+weightCutBonus(fight,fB.id,missedId);
@@ -3089,7 +3095,7 @@ function openFighterModal(fid, context){
           <span>🏆 Finalizaciones: <b>${ufcKoWinsOf(f)+ufcSubWinsOf(f)}</b></span>
         </div>
       </div>
-      <p class="muted">Bonos: ${f.bonuses.performanceOfNight} Actuación de la Noche · ${f.bonuses.fightOfNight} Pelea de la Noche</p>
+      <p class="muted">Bonos: ${f.bonuses.performanceOfNight} Actuación de la Noche · ${f.bonuses.fightOfNight} Pelea de la Noche${f.missedWeightCount?` · ⚖️ ${f.missedWeightCount} fallo${f.missedWeightCount>1?'s':''} de peso`:''}</p>
       ${(()=>{
         if(f.status==='retired'||!f.contract) return '';
         const c=f.contract;
@@ -3142,6 +3148,12 @@ function openFighterModal(fid, context){
         // Actuación del Año
         const perfYears = allAwards.filter(a=>a.performanceOfYear?.fA===f.id).map(a=>a.year);
         if(perfYears.length) rows.push('<p class="muted">⭐ Actuación del Año: '+perfYears.length+'× ('+perfYears.join(', ')+')</p>');
+        // Sorpresa del Año
+        const upsetYears = allAwards.filter(a=>a.upsetOfYear?.fA===f.id).map(a=>{
+          const opp=STATE.fighters.find(x=>x.id===a.upsetOfYear.fB);
+          return a.year+(opp?' vs '+opp.name.split(' ').pop():'');
+        });
+        if(upsetYears.length) rows.push('<p class="muted">😱 Sorpresa del Año: '+upsetYears.length+'× · '+upsetYears.join(', ')+'</p>');
         return rows.join('');
       })()}
       ${f.status==='suspended'?`<p style="color:#ef5350;font-weight:600;font-size:.8rem;margin:4px 0">🚫 SANCIONADO — ${f.suspension?.note||'Sanción'} · hasta ${fmtDate(f.suspension?.untilDate)}</p>`:''}
@@ -4878,6 +4890,7 @@ function openLiveFightViewer(ev){
           fight.missedWeight=missedId;
           logEvent(`⚖️ ${fName(mf)} no da el peso — el combate se realiza igualmente, pero ${fName(mf)} no podrá ganar/retener el título si gana el combate.`);
           mf.rankScore=Math.max(0,(mf.rankScore||0)-15);
+          mf.missedWeightCount=(mf.missedWeightCount||0)+1;
           if(STATE.atpPoints) STATE.atpPoints[missedId]=Math.round((STATE.atpPoints[missedId]||0)*0.85);
         }
       }
@@ -5306,12 +5319,47 @@ function giveAwardsForYear(awardYear){
     logEvent(`🏆 Peleador del Año ${awardYear}: ${fName(fotyF)}`);
     richToast(`🏆 Peleador del Año ${awardYear}: ${fName(fotyF)}!`,'🏆','#d4af37',6000);
   }
+  // Sorpresa del Año: la mayor diferencia de nivel a favor del PERDEDOR sobre el papel — el
+  // ganador era claramente el peor puesto sobre el papel y aun así se llevó la victoria.
+  let upsetFight=null, upsetDiff=3; // umbral mínimo para que cuente como sorpresa real
+  yearFights.forEach(ft=>{
+    const w=STATE.fighters.find(x=>x.id===ft.result.winnerId), l=STATE.fighters.find(x=>x.id===ft.result.loserId);
+    if(!w||!l) return;
+    const diff=overallRating(l)-overallRating(w);
+    if(diff>upsetDiff){ upsetDiff=diff; upsetFight=ft; }
+  });
+  if(upsetFight){
+    const uw=STATE.fighters.find(x=>x.id===upsetFight.result.winnerId), ul=STATE.fighters.find(x=>x.id===upsetFight.result.loserId);
+    if(uw&&ul){
+      if(!uw.bonuses.upsetOfYear) uw.bonuses.upsetOfYear=0; uw.bonuses.upsetOfYear++;
+      uw.bonuses.lastUpsetOfYear=`vs ${fName(ul)} (${awardYear})`;
+      updateReputation(uw,10); // dar la sorpresa del año también hace fama
+      logEvent(`😱 Sorpresa del Año ${awardYear}: ${fName(uw)} sorprende a ${fName(ul)}`);
+      richToast(`😱 Sorpresa del Año ${awardYear}: ${fName(uw)}!`,'😱','#ff7043',5000);
+    }
+  }
+  // Decepción del Año: la pelea con más expectación (título o entre los más famosos) que acabó
+  // en la decisión unánime más sosa del año — sin premio ni fama para nadie, es solo la cruz
+  // narrativa de la ceremonia (para que no todo sean noticias buenas).
+  const dudCands = yearFights.filter(ft=>ft.result.method==='Decisión' && ft.result.decType==='Unánime');
+  let dudFight=null;
+  if(dudCands.length){
+    const hypeOf=ft=>{
+      const a=STATE.fighters.find(x=>x.id===ft.fighterA), b=STATE.fighters.find(x=>x.id===ft.fighterB);
+      return (ft.titleId?50:0)+(a?.reputation||50)+(b?.reputation||50);
+    };
+    dudFight=dudCands.slice().sort((a,b)=>hypeOf(b)-hypeOf(a))[0];
+  }
   STATE.awards.push({year:awardYear,
     fighterOfYear:fotyId||null,
     fightOfYear:fotyFight?{fA:fotyFight.fighterA,fB:fotyFight.fighterB}:null,
-    koOfYear:koW?{fA:koW.fighterA,fB:koW.fighterB,round:koW.result.round,time:koW.result.time}:null,
-    subOfYear:subW?{fA:subW.fighterA,fB:subW.fighterB,round:subW.result.round,time:subW.result.time}:null,
+    // fA/fB = ganador/perdedor (NO las esquinas del combate) — usar fighterA/fighterB del combate
+    // habría atribuido el KO/sumisión al peleador equivocado la mitad de las veces.
+    koOfYear:koW?{fA:koW.result.winnerId,fB:koW.result.loserId,round:koW.result.round,time:koW.result.time}:null,
+    subOfYear:subW?{fA:subW.result.winnerId,fB:subW.result.loserId,round:subW.result.round,time:subW.result.time}:null,
     performanceOfYear:potyFight?{fA:potyFight.fighterA,fB:potyFight.fighterB}:null,
+    upsetOfYear:upsetFight?{fA:upsetFight.result.winnerId,fB:upsetFight.result.loserId}:null,
+    dudOfYear:dudFight?{fA:dudFight.fighterA,fB:dudFight.fighterB}:null,
   });
   STATE.meta.lastAwardYear=awardYear;
   return true;
@@ -5350,6 +5398,8 @@ function openAwardsCeremony(year, onClose){
   const koHtml = row('💥','KO del Año','#ef5350', a.koOfYear?`${nameOf(a.koOfYear.fA)} def. ${nameOf(a.koOfYear.fB)} · R${a.koOfYear.round} ${a.koOfYear.time}`:null);
   const subHtml = row('🤼','Sumisión del Año','#ce93d8', a.subOfYear?`${nameOf(a.subOfYear.fA)} def. ${nameOf(a.subOfYear.fB)} · R${a.subOfYear.round} ${a.subOfYear.time}`:null);
   const potyHtml = row('⭐','Actuación del Año','#82b1ff', a.performanceOfYear?`${nameOf(a.performanceOfYear.fA)} vs ${nameOf(a.performanceOfYear.fB)}`:null);
+  const upsetHtml = row('😱','Sorpresa del Año','#ff7043', a.upsetOfYear?`${nameOf(a.upsetOfYear.fA)} sorprende a ${nameOf(a.upsetOfYear.fB)}`:null);
+  const dudHtml = row('😴','Decepción del Año','#78909c', a.dudOfYear?`${nameOf(a.dudOfYear.fA)} vs ${nameOf(a.dudOfYear.fB)} — la pelea más hypeada que decepcionó`:null);
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-bg" id="modalBg">
     <div class="modal" style="max-width:480px;text-align:center">
@@ -5358,7 +5408,7 @@ function openAwardsCeremony(year, onClose){
       </div>
       ${fOf?`<div style="margin-bottom:10px">${avatarHtml(fOf,72)}</div>`:''}
       <div style="text-align:left">
-        ${fotyHtml}${fightHtml}${koHtml}${subHtml}${potyHtml}
+        ${fotyHtml}${fightHtml}${koHtml}${subHtml}${potyHtml}${upsetHtml}${dudHtml}
       </div>
       <button class="btn primary full" id="awardsCeremonyNext" style="margin-top:8px;padding:12px">Continuar →</button>
     </div>
@@ -6206,6 +6256,7 @@ function tplStats(){
   ${block('Más sumisiones recibidas UFC',all.slice().sort((a,b)=>(b.record.ufcSubLosses||0)-(a.record.ufcSubLosses||0)),f=>f.record.ufcSubLosses||0)}
   ${block('Más decisiones perdidas UFC',all.slice().sort((a,b)=>(b.record.ufcDecLosses||0)-(a.record.ufcDecLosses||0)),f=>f.record.ufcDecLosses||0)}
   ${block('Más finalizaciones recibidas UFC',all.slice().sort((a,b)=>((b.record.ufcKoLosses||0)+(b.record.ufcSubLosses||0))-((a.record.ufcKoLosses||0)+(a.record.ufcSubLosses||0))),f=>(f.record.ufcKoLosses||0)+(f.record.ufcSubLosses||0),'💀')}
+  ${block('Más fallos de peso',all.filter(f=>f.missedWeightCount).slice().sort((a,b)=>(b.missedWeightCount||0)-(a.missedWeightCount||0)),f=>f.missedWeightCount||0,'⚖️')}
 
   <h3 style="margin:12px 8px 4px">🏆 Récords en combates por el título</h3>
   ${(()=>{
