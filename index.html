@@ -54,8 +54,15 @@
   .tabs{display:flex;overflow-x:auto;gap:6px;padding:8px 10px;background:var(--bg2);border-bottom:1px solid var(--line);
     position:sticky;top:46px;z-index:19}
   .tabs::-webkit-scrollbar{display:none}
+  /* Degradado en los bordes — pista visual de que la barra sigue más allá de la pantalla */
+  .tabs::before,.tabs::after{content:'';position:absolute;top:0;bottom:0;width:20px;pointer-events:none;z-index:1}
+  .tabs::before{left:0;background:linear-gradient(to right,var(--bg2),transparent)}
+  .tabs::after{right:0;background:linear-gradient(to left,var(--bg2),transparent)}
   .tab{flex:0 0 auto;padding:7px 12px;border-radius:99px;background:var(--bg3);font-size:.78rem;white-space:nowrap;border:1px solid var(--line)}
   .tab.active{background:var(--red);border-color:var(--red2);color:#fff;font-weight:700}
+  /* Separador sutil entre grupos temáticos de pestañas */
+  .tab-group-start{margin-left:10px;position:relative}
+  .tab-group-start::before{content:'';position:absolute;left:-8px;top:1px;bottom:1px;width:1px;background:var(--line)}
   .statbar{height:6px;border-radius:99px;background:var(--bg3);overflow:hidden;margin-top:2px}
   .statbar i{display:block;height:100%;background:var(--blue)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -728,9 +735,15 @@ function clearSlot(n){ localStorage.removeItem(slotKey(n)); }
 // general pero mucho KO, el wrestler de control, etc. se reflejan correctamente en el marchmaking.
 function winProbabilities(fA, fB, rounds=3){
   const N = 400; // más muestras = probabilidad más suavizada
+  // Aplica el mismo bonus de racha que usa la simulación real (momentumBonus) — si no, el
+  // % mostrado antes del combate no reflejaba que un peleador en racha caliente ya llega
+  // reforzado, y podía no coincidir con lo que realmente decide el resultado.
+  const mA=momentumBonus(fA), mB=momentumBonus(fB);
+  const fAb=mA?{...fA,stats:{...fA.stats,...Object.fromEntries(Object.entries(fA.stats).map(([k,v])=>[k,Math.min(99,v+mA)]))}}:fA;
+  const fBb=mB?{...fB,stats:{...fB.stats,...Object.fromEntries(Object.entries(fB.stats).map(([k,v])=>[k,Math.min(99,v+mB)]))}}:fB;
   let winsA = 0;
   for(let i=0;i<N;i++){
-    if(simulateFight(fA, fB, {rounds}).winner===fA) winsA++;
+    if(simulateFight(fAb, fBb, {rounds}).winner===fAb) winsA++;
   }
   const raw = winsA/N*100;
   // Comprimir hacia 50 para reflejar la aleatoriedad real del deporte
@@ -1106,12 +1119,15 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
   const actions=[], stsA=_emptyStats(), stsB=_emptyStats();
   const dmgToA={head:0,body:0,legs:0}, dmgToB={head:0,body:0,legs:0};
   let finish=null;
+  // Golpes en el último minuto del asalto — los jueces reales valoran "cerrar fuerte"
+  let lateA=0, lateB=0;
 
   while(timeElapsed<300 && !finish){
     const act=_resolveAct(pos, fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds);
     actions.push(act);
     timeElapsed+=act.dur||15;
     pos=act.npos||pos;
+    const inLateWindow=timeElapsed>=240; // último minuto (de 300s)
 
     // Accumulate A stats (what A did TO B)
     if(act.sigA){stsA.sigL+=act.sigA;stsA.sigA+=act.sigA;}
@@ -1120,6 +1136,7 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
     if(act.tdAttA) stsA.tdAtt++; if(act.tdLandedA) stsA.tdL++;
     if(act.subAttA) stsA.subAtt++; if(act.kdB) stsA.kd++;
     if(act.ctrlA) stsA.ctrl+=act.ctrlA;
+    if(inLateWindow){ if(act.sigA) lateA+=act.sigA; if(act.kdB) lateA+=15; }
 
     // Accumulate B stats (what B did TO A)
     if(act.sigB){stsB.sigL+=act.sigB;stsB.sigA+=act.sigB;}
@@ -1128,6 +1145,7 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
     if(act.tdAttB) stsB.tdAtt++; if(act.tdLandedB) stsB.tdL++;
     if(act.subAttB) stsB.subAtt++; if(act.kdA) stsB.kd++;
     if(act.ctrlB) stsB.ctrl+=act.ctrlB;
+    if(inLateWindow){ if(act.sigB) lateB+=act.sigB; if(act.kdA) lateB+=15; }
 
     // Health damage by zone
     if(act.dB>0){const z=act.zoneA||'head';dmgToB[z]+=(act.dB)*(z==='legs'?1.5:z==='body'?1.2:1);}
@@ -1136,9 +1154,11 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
     if(act.fin){finish=act.fin; break;}
   }
 
-  // UFC round scoring: effective striking + grappling + knockdowns
-  const scA=stsA.sigL + stsA.tdL*14 + stsA.ctrl/22 + stsA.kd*28;
-  const scB=stsB.sigL + stsB.tdL*14 + stsB.ctrl/22 + stsB.kd*28;
+  // UFC round scoring: golpes efectivos (la cabeza puntúa algo más que el cuerpo, y el
+  // cuerpo algo más que la pierna — como en el criterio real de "effective striking", no
+  // solo volumen bruto) + grappling + knockdowns + un pequeño plus por cerrar el asalto fuerte.
+  const scA=(stsA.headL*1.15 + stsA.bodyL*1.0 + stsA.legsL*0.85) + stsA.tdL*14 + stsA.ctrl/22 + stsA.kd*28 + lateA*0.6;
+  const scB=(stsB.headL*1.15 + stsB.bodyL*1.0 + stsB.legsL*0.85) + stsB.tdL*14 + stsB.ctrl/22 + stsB.kd*28 + lateB*0.6;
   const winner=scA>scB?'A':scB>scA?'B':Math.random()<0.5?'A':'B';
 
   stsA.fightTime=timeElapsed; stsB.fightTime=timeElapsed;
@@ -1282,6 +1302,14 @@ function methodLabel(resultOrFt){
   if(m!=='Decisión') return m;
   const dt=resultOrFt?.decType||resultOrFt?.result?.decType;
   return dt?`Decisión ${dt}`:m;
+}
+// Abreviatura compacta tipo transmisión real (UD/SD/MD) — para sitios donde no cabe
+// "Decisión Unánime/Dividida/Mayoría" entero (listas, tablas, tarjetas de combate).
+function methodAbbr(resultOrFt){
+  const m=resultOrFt?.method||resultOrFt?.result?.method||'?';
+  if(m!=='Decisión') return m;
+  const dt=resultOrFt?.decType||resultOrFt?.result?.decType;
+  return dt==='Unánime'?'UD':dt==='Dividida'?'SD':dt==='Mayoría'?'MD':m;
 }
 // Color del método
 function methodColor(m){
@@ -2229,17 +2257,21 @@ function vacateTitleForInjury(titleId){
 }
 
 /* ====================== RENDER: SHELL ====================== */
+// Agrupadas por tema (Principal · Competición · Estadísticas · Peleadores · Negocio · Info) —
+// el 3er valor marca el inicio de un grupo nuevo, para pintar un separador visual en la barra.
 const TABS = [
-  ['dashboard','Inicio'],['roster','Roster'],['rankings','Rankings'],['titles','Títulos'],
-  ['divisions','Divisiones'],['events','Eventos'],['stats','Estadísticas'],['activity','Actividad'],['hof','Hall of Fame'],
-  ['scout','Scouting'],['rivalries','Rivalidades'],['infirmary','Enfermería'],['compare','Comparar'],['rankHistory','Ranking hist.'],
-  ['promotions','Promotoras'],['finance','Finanzas'],['editor','Editor'],['guide','Guía'],['settings','GitHub']
+  ['dashboard','Inicio'],['roster','Roster'],['events','Eventos'],
+  ['rankings','Rankings',true],['titles','Títulos'],['divisions','Divisiones'],['rankHistory','Ranking hist.'],
+  ['stats','Estadísticas',true],['activity','Actividad'],['hof','Hall of Fame'],
+  ['scout','Scouting',true],['rivalries','Rivalidades'],['infirmary','Enfermería'],['compare','Comparar'],
+  ['promotions','Promotoras',true],['finance','Finanzas'],['editor','Editor'],
+  ['guide','Guía',true],['settings','GitHub']
 ];
 
 function renderShell(){
   document.getElementById('topDate').textContent = '📅 ' + fmtDate(STATE.meta.currentDate);
   const tabsEl = document.getElementById('tabs');
-  tabsEl.innerHTML = TABS.map(([id,label])=>`<div class="tab ${UI.tab===id?'active':''}" data-tab="${id}">${label}</div>`).join('');
+  tabsEl.innerHTML = TABS.map(([id,label,newGroup])=>`<div class="tab ${UI.tab===id?'active':''}${newGroup?' tab-group-start':''}" data-tab="${id}">${label}</div>`).join('');
   tabsEl.querySelectorAll('.tab').forEach(t=> t.onclick=()=>{ UI.tab=t.dataset.tab; render(); });
   renderTab();
 }
@@ -2595,7 +2627,7 @@ function tplRivalries(){
         </div>
       </div>
       ${fights.map((f,i)=>{const mc=m=>methodColor(m);const t=f.ft.titleId?STATE.titles.find(x=>x.id===f.ft.titleId):null;
-        return `<div style="font-size:.72rem;padding:3px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between"><span>${i+1}. <b>${f.w?.name||'?'}</b> vence · ${fmtDate(f.date)}</span><span style="color:${mc(f.ft.result.method)}">${f.ft.result.method} R${f.ft.result.round}${t?' 🏆':''}</span></div>`;
+        return `<div style="font-size:.72rem;padding:3px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between"><span>${i+1}. <b>${f.w?.name||'?'}</b> vence · ${fmtDate(f.date)}</span><span style="color:${mc(f.ft.result.method)}">${methodAbbr(f.ft.result)} R${f.ft.result.round}${t?' 🏆':''}</span></div>`;
       }).join('')}
     </div>`;
   }).join('')}`;
@@ -3012,7 +3044,7 @@ function openFighterModal(fid, context){
     const r=found.ft.result; const opp = STATE.fighters.find(x=>x.id===(r.winnerId===f.id?r.loserId:r.winnerId));
     const won = r.winnerId===f.id;
     const belt = found.ft.titleId? ` ${titleIcon(STATE.titles.find(t=>t.id===found.ft.titleId)||{})} <b>Combate por el título</b>` : '';
-    return `<div class="clickable" onclick="showFightById('${found.ev.id}','${found.ft.id}')" style="padding:3px 0;border-bottom:1px solid #0d0d0d;cursor:pointer">${won?'✅':'❌'} vs ${opp?opp.name:'?'} — <span style="color:${r.method==='KO/TKO'?'#ef5350':r.method==='Sumisión'?'#ce93d8':'#aaa'}">${r.method}</span> R${r.round} · <span class="muted">${fmtDate(found.ev.date)} · ${fName(found.ev)}</span>${belt}</div>`;
+    return `<div class="clickable" onclick="showFightById('${found.ev.id}','${found.ft.id}')" style="padding:3px 0;border-bottom:1px solid #0d0d0d;cursor:pointer">${won?'✅':'❌'} vs ${opp?opp.name:'?'} — <span style="color:${r.method==='KO/TKO'?'#ef5350':r.method==='Sumisión'?'#ce93d8':'#aaa'}">${methodAbbr(r)}</span> R${r.round} · <span class="muted">${fmtDate(found.ev.date)} · ${fName(found.ev)}</span>${belt}</div>`;
   }).join('') || '<p class="muted">Sin combates simulados.</p>';
 
   // Posición en rankings para peleadores activos
@@ -4568,7 +4600,7 @@ function openLiveFightViewer(ev){
             const mc=methodColor(last.method);
             return `<div style="padding:0 14px 12px;background:var(--bg3);margin:0 1px;border-top:1px solid var(--line)">
               <div style="font-size:.65rem;color:var(--txt2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚔️ Contexto — ${prev.length===1?'Primera revancha':prev.length===2?'Trilogía':'Pelea #'+(prev.length+1)}</div>
-              <div style="font-size:.78rem">En su último encuentro, <b style="color:${won?'var(--red)':'var(--blue)'}">${won?fA.name:fB.name}</b> venció por <span style="color:${mc}">${last.method}</span> R${last.round} <span style="color:var(--txt3)">(${last.date?.slice(0,7)||''})</span></div>
+              <div style="font-size:.78rem">En su último encuentro, <b style="color:${won?'var(--red)':'var(--blue)'}">${won?fA.name:fB.name}</b> venció por <span style="color:${mc}">${methodLabel(last)}</span> R${last.round} <span style="color:var(--txt3)">(${last.date?.slice(0,7)||''})</span></div>
             </div>`;
           })()}
           <div style="padding:0 14px 12px;text-align:center">
@@ -4803,7 +4835,7 @@ function openLiveFightViewer(ev){
             </div>
             <div style="background:var(--bg3);border-radius:10px;padding:14px;margin:0 0 14px">
               <div style="font-size:2.5rem">${isKO?'💥':isSub?'🤼':'📋'}</div>
-              <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${result.method}</div>
+              <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${methodLabel(result)}</div>
               <div style="font-size:.9rem;color:var(--txt2)">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
             </div>
             ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
@@ -5231,7 +5263,7 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   saveStatSnapshot(winner, ev.date, ev.name);
   saveStatSnapshot(loser, ev.date, ev.name);
   checkMilestones(winner, ev);
-  logEvent(`🥊 ${fName(winner)} derrota a ${fName(loser)} por ${result.method} (R${result.round}, ${result.time})`);
+  logEvent(`🥊 ${fName(winner)} derrota a ${fName(loser)} por ${methodLabel(result)} (R${result.round}, ${result.time})`);
 }
 
 function giveAwardsForYear(awardYear){
@@ -5636,7 +5668,7 @@ function showEventSummary(ev, completedFights){
       <span style="font-size:1.5rem">${titleIcon(t)}</span>
       <div>
         <div style="font-weight:800;color:#d4af37">${fName(w)} ${newChamp&&ft.result.winnerId!==t.holderId?'🆕 NUEVO CAMPEÓN':''}</div>
-        <div style="font-size:.75rem;color:#aaa">${fName(t)}${ft.isInterim?' (Interino)':''} · def. ${l?.name||'?'} por ${ft.result.method} R${ft.result.round}</div>
+        <div style="font-size:.75rem;color:#aaa">${fName(t)}${ft.isInterim?' (Interino)':''} · def. ${l?.name||'?'} por ${methodLabel(ft.result)} R${ft.result.round}</div>
       </div>
     </div>`;
   }).join('');
@@ -5672,7 +5704,7 @@ function showEventSummary(ev, completedFights){
           </div>
         </div>
         <div style="text-align:right;min-width:90px">
-          <div style="font-size:.78rem;font-weight:700;color:${methodColor}">${ft.result.method}</div>
+          <div style="font-size:.78rem;font-weight:700;color:${methodColor}">${methodLabel(ft.result)}</div>
           <div style="font-size:.72rem;color:#666">R${ft.result.round} · ${ft.result.time}</div>
         </div>
       </div>
@@ -5825,7 +5857,7 @@ function tplChampionTree(tid){
     ev.card.filter(ft=>ft.titleId===tid&&ft.result).forEach(ft=>{
       const w=STATE.fighters.find(x=>x.id===ft.result.winnerId);
       const l=STATE.fighters.find(x=>x.id===ft.result.loserId);
-      if(w&&l) chain.push({w,l,method:ft.result.method,round:ft.result.round,date:ev.date,evName:ev.name,isInterim:ft.isInterim});
+      if(w&&l) chain.push({w,l,method:ft.result.method,decType:ft.result.decType,round:ft.result.round,date:ev.date,evName:ev.name,isInterim:ft.isInterim});
     });
   });
   if(!chain.length) return '<p class="muted">Aún sin combates titulares simulados para este cinturón.</p>';
@@ -5839,7 +5871,7 @@ function tplChampionTree(tid){
         <div style="width:10px;height:10px;border-radius:50%;background:${fighterColor(c.w.id)};flex-shrink:0;position:relative;left:-5px"></div>
         <div style="flex:1">
           <div style="font-size:.82rem;font-weight:700;color:${fighterColor(c.w.id)}" class="clickable" data-id="${c.w.id}">${fName(c.w)}${c.isInterim?' 🥈':''}</div>
-          <div style="font-size:.7rem;color:#555">def. <span class="clickable" data-id="${c.l.id}" style="cursor:pointer">${fName(c.l)}</span> · ${methodIcon(c.method)} <span style="color:${methodColor(c.method)}">${c.method}</span> R${c.round} · ${fmtDate(c.date)}</div>
+          <div style="font-size:.7rem;color:#555">def. <span class="clickable" data-id="${c.l.id}" style="cursor:pointer">${fName(c.l)}</span> · ${methodIcon(c.method)} <span style="color:${methodColor(c.method)}">${methodAbbr(c)}</span> R${c.round} · ${fmtDate(c.date)}</div>
         </div>
       </div>
     </div>`).join('')}
@@ -5956,7 +5988,7 @@ function tplComparator(){
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.78rem">
           <span style="font-weight:700;color:${won?'#e53935':'#1565c0'}">${won?fName(fA):fName(fB)}</span>
           <div style="text-align:center">
-            <div style="color:${mc};font-weight:700;font-size:.72rem">${f.method}</div>
+            <div style="color:${mc};font-weight:700;font-size:.72rem">${methodAbbr(f)}</div>
             <div style="color:#555;font-size:.65rem">R${f.round} · ${f.time} · ${f.date?.slice(0,7)||''}</div>
           </div>
           <span style="color:#555">${won?fName(fB):fName(fA)}</span>
@@ -6472,7 +6504,7 @@ function tplDivisions(){
     return `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #111">
       <div class="clickable" data-id="${w.id}" style="flex:1;text-align:right;font-size:.78rem;font-weight:700;cursor:pointer">${w.name}</div>
       <div style="text-align:center;min-width:80px">
-        <div style="font-size:.6rem;color:${mc};font-weight:700">${e.method}</div>
+        <div style="font-size:.6rem;color:${mc};font-weight:700">${methodAbbr(e)}</div>
         <div style="font-size:.58rem;color:#555">R${e.round} · ${e.time||''}</div>
         <div style="font-size:.56rem;color:#444">${e.date?.slice(0,7)||''}</div>
       </div>
