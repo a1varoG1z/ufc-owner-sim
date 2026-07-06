@@ -1395,35 +1395,36 @@ function checkMilestones(fighter, ev){
   // Convert to Set for fast lookup, works even when loaded from JSON (array)
   const reached = new Set(Array.isArray(STATE.milestonesReached)?STATE.milestonesReached:[...STATE.milestonesReached]);
   const key=(name,id)=>`${name}_${id}`;
-  const reach=(k,msg,icon,color)=>{
+  const reach=(k,msg,icon,color,repDelta,repTarget)=>{
     if(!reached.has(k)){
       reached.add(k);
       STATE.milestonesReached=Array.from(reached);
       richToast(msg,icon,color,5000);
       logEvent(`🏅 HITO: ${msg}`);
+      if(repDelta) updateReputation(repTarget||fighter, repDelta); // los hitos también dan fama, no solo prestigio
     }
   };
   const ufcW=fighter.record.ufcWins||0, momentum=fighter.momentum||0;
   // Hito: 10, 15, 20 victorias UFC
-  [10,15,20].forEach(n=>{ if(ufcW>=n) reach(key(`ufc${n}wins`,fighter.id),`${fName(fighter)} alcanza ${n} victorias en la UFC`,'🎯','#d4af37'); });
+  [[10,3],[15,4],[20,5]].forEach(([n,rep])=>{ if(ufcW>=n) reach(key(`ufc${n}wins`,fighter.id),`${fName(fighter)} alcanza ${n} victorias en la UFC`,'🎯','#d4af37',rep); });
   // Hito: racha de 5+
-  if(momentum>=5) reach(key(`streak5`,fighter.id),`${fName(fighter)} lleva 5 victorias consecutivas — ¡imparable!`,'🔥','#ff6d00');
-  if(momentum>=10) reach(key(`streak10`,fighter.id),`${fName(fighter)} lleva 10 victorias seguidas — histórico`,'💫','#ffd600');
+  if(momentum>=5) reach(key(`streak5`,fighter.id),`${fName(fighter)} lleva 5 victorias consecutivas — ¡imparable!`,'🔥','#ff6d00',4);
+  if(momentum>=10) reach(key(`streak10`,fighter.id),`${fName(fighter)} lleva 10 victorias seguidas — histórico`,'💫','#ffd600',8);
   // Hito: invicto en UFC con 10+ peleas
-  if(fighter.record.ufcLosses===0 && ufcW>=10) reach(key('ufc_unbeaten10',fighter.id),`${fName(fighter)} sigue INVICTO con ${ufcW} victorias en UFC`,'⚡','#69f0ae');
+  if(fighter.record.ufcLosses===0 && ufcW>=10) reach(key('ufc_unbeaten10',fighter.id),`${fName(fighter)} sigue INVICTO con ${ufcW} victorias en UFC`,'⚡','#69f0ae',6);
   // Hito: primer campeón de dos pesos en la liga
   const twoDiv=(fighter.titleReigns||[]).map(r=>STATE.titles.find(t=>t.id===r.titleId)?.divisionId||r.divisionId).filter(Boolean);
-  if(new Set(twoDiv).size>=2) reach(key('twoweight',fighter.id),`${fName(fighter)} se convierte en campeón de dos pesos`,'👑','#d4af37');
+  if(new Set(twoDiv).size>=2) reach(key('twoweight',fighter.id),`${fName(fighter)} se convierte en campeón de dos pesos`,'👑','#d4af37',10);
   // Hito: 5 defensas en un único reinado
   const maxDef=Math.max(0,...(fighter.titleReigns||[]).map(r=>r.defenses||0));
-  if(maxDef>=5) reach(key('def5',fighter.id),`${fName(fighter)} llega a 5 defensas consecutivas`,'🛡️','#64b5f6');
-  if(maxDef>=10) reach(key('def10',fighter.id),`${fName(fighter)} realiza 10 defensas — récord histórico`,'🏆','#ffd600');
+  if(maxDef>=5) reach(key('def5',fighter.id),`${fName(fighter)} llega a 5 defensas consecutivas`,'🛡️','#64b5f6',5);
+  if(maxDef>=10) reach(key('def10',fighter.id),`${fName(fighter)} realiza 10 defensas — récord histórico`,'🏆','#ffd600',8);
   // Hito global: nuevo récord de KO más rápido
   const R=STATE.records||{};
   if(R.fastestKO){
     const prev=STATE._prevFastestKO;
     if(!prev||R.fastestKO.secs<prev) {
-      if(prev) reach(`fastko_${ev?.id||'?'}`,`Nuevo récord: KO más rápido de la liga — ${R.fastestKO.secs}s`,'💥','#ef5350');
+      if(prev) reach(`fastko_${ev?.id||'?'}`,`Nuevo récord: KO más rápido de la liga — ${R.fastestKO.secs}s`,'💥','#ef5350',6,STATE.fighters.find(x=>x.id===R.fastestKO.fighterId));
       STATE._prevFastestKO=R.fastestKO.secs;
     }
   }
@@ -5110,6 +5111,7 @@ function giveAwardsForYear(awardYear){
       if(!fw.bonuses.fightOfYear)fw.bonuses.fightOfYear=0; fw.bonuses.fightOfYear++;
       if(!fl.bonuses.fightOfYear)fl.bonuses.fightOfYear=0; fl.bonuses.fightOfYear++;
       fw.bonuses.lastFightOfYear=`${fName(fl)} (${awardYear})`; fl.bonuses.lastFightOfYear=`${fName(fw)} (${awardYear})`;
+      updateReputation(fw,8); updateReputation(fl,8); // ganar y ser protagonista de la Pelea del Año da fama a los dos
       logEvent(`🏅 Pelea del Año ${awardYear}: ${fName(fw)} vs ${fName(fl)}`);
       richToast(`🏅 Pelea del Año ${awardYear}: ${fName(fw)} vs ${fName(fl)}!`,'🏅','#ffd700',5000);
     }
@@ -5121,6 +5123,7 @@ function giveAwardsForYear(awardYear){
     if(pw){
       if(!pw.bonuses.performanceOfYear)pw.bonuses.performanceOfYear=0; pw.bonuses.performanceOfYear++;
       pw.bonuses.lastPerformanceOfYear=String(awardYear);
+      updateReputation(pw,8);
       logEvent(`⭐ Actuación del Año ${awardYear}: ${fName(pw)}`);
       richToast(`⭐ Actuación del Año ${awardYear}: ${fName(pw)}!`,'⭐','#ffd700',4500);
     }
@@ -5137,6 +5140,7 @@ function giveAwardsForYear(awardYear){
     if(kw&&kl){
       if(!kw.bonuses.koOfYear)kw.bonuses.koOfYear=0; kw.bonuses.koOfYear++;
       kw.bonuses.lastKoOfYear=`vs ${fName(kl)} (${awardYear}) R${koW.result.round} ${koW.result.time}`;
+      updateReputation(kw,8);
       logEvent(`💥 KO del Año ${awardYear}: ${fName(kw)} def. ${fName(kl)} R${koW.result.round}`);
       richToast(`💥 KO del Año ${awardYear}: ${fName(kw)}!`,'💥','#ef5350',4000);
     }
@@ -5150,6 +5154,7 @@ function giveAwardsForYear(awardYear){
     if(sw&&sl){
       if(!sw.bonuses.subOfYear)sw.bonuses.subOfYear=0; sw.bonuses.subOfYear++;
       sw.bonuses.lastSubOfYear=`vs ${fName(sl)} (${awardYear}) R${subW.result.round} ${subW.result.time}`;
+      updateReputation(sw,8);
       logEvent(`🤼 Sumisión del Año ${awardYear}: ${fName(sw)} def. ${fName(sl)}`);
       richToast(`🤼 Sumisión del Año ${awardYear}: ${fName(sw)}!`,'🤼','#ce93d8',4000);
     }
@@ -5169,6 +5174,7 @@ function giveAwardsForYear(awardYear){
     if(!fotyF.bonuses.fighterOfYear)fotyF.bonuses.fighterOfYear=0;
     fotyF.bonuses.fighterOfYear++;
     fotyF.bonuses.lastFighterOfYear=awardYear;
+    updateReputation(fotyF,15); // el máximo honor de la temporada es el que más fama da
     logEvent(`🏆 Peleador del Año ${awardYear}: ${fName(fotyF)}`);
     richToast(`🏆 Peleador del Año ${awardYear}: ${fName(fotyF)}!`,'🏆','#d4af37',6000);
   }
