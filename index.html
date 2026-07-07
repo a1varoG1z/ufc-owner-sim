@@ -4534,42 +4534,7 @@ function openLiveFightViewer(ev){
       incidents.push(inc[Math.floor(Math.random()*inc.length)]);
     }
 
-    // Tarjetas de jueces — jueces 1 y 2 siempre coinciden con el ganador real,
-    // juez 3 puede discrepar (~25%) generando una decisión dividida realista
-    let judgeCards=null;
-    if(result.method==='Decisión'){
-      const rScores=result.roundScores||[];
-      const winnerIsA_dec = result.winner.id===fA.id;
-
-      // Jueces 1 y 2: SIEMPRE dan la victoria al ganador real del combate
-      const makeGuaranteedCard = (j) => {
-        const rounds_j = rScores.map((s,ri) => {
-          const aWon = s==='A';
-          const fightWinnerWonRound = winnerIsA_dec ? aWon : !aWon;
-          const dom = fightWinnerWonRound && Math.abs(roundMargins[ri]||0) > 18 && Math.random() < 0.15;
-          return aWon ? [10, dom?8:9] : [dom?8:9, 10];
-        });
-        const sA=rounds_j.reduce((s,r)=>s+r[0],0), sB=rounds_j.reduce((s,r)=>s+r[1],0);
-        return {j, sA, sB, rounds:rounds_j};
-      };
-
-      // Juez 3: puede dar la pelea al perdedor (~25%) si los asaltos fueron reñidos
-      const makeSplitCard = (j) => {
-        const rounds_j = rScores.map((s,ri) => {
-          const aWon = s==='A';
-          const margin = Math.abs(roundMargins[ri]||10);
-          const isClose = margin < 8;
-          const gA = Math.random() > (isClose ? 0.35 : 0.06) ? aWon : !aWon;
-          const dom = gA===aWon && margin > 18 && Math.random() < 0.15;
-          return gA ? [10, dom?8:9] : [dom?8:9, 10];
-        });
-        const sA=rounds_j.reduce((s,r)=>s+r[0],0), sB=rounds_j.reduce((s,r)=>s+r[1],0);
-        return {j, sA, sB, rounds:rounds_j};
-      };
-
-      judgeCards = [makeGuaranteedCard(1), makeGuaranteedCard(2), makeSplitCard(3)];
-    }
-    return {strikesA,strikesB,tdA,tdB,subAttA,subAttB,kdA,kdB,ctrlA,ctrlB,incidents,judgeCards,roundMargins};
+    return {strikesA,strikesB,tdA,tdB,subAttA,subAttB,kdA,kdB,ctrlA,ctrlB,incidents,roundMargins};
   });
 
   // Contexto de revancha: historial previo entre estos dos
@@ -4903,24 +4868,22 @@ function openLiveFightViewer(ev){
             ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
             ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
             ${(()=>{
-              const jc=fightLiveStats[fightIdx].judgeCards;
+              const jc=result.judgeScores;
               if(!jc) return '';
-              const winsA=jc.filter(j=>j.sA>j.sB).length;
-              const decType=winsA===3?'Decisión unánime':winsA===2?'Decisión mayoritaria':winsA===1?'Decisión dividida':'Empate';
               return `<div class="fv-panel">
                 <div style="font-size:.65rem;color:var(--txt2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📋 Tarjetas de los jueces</div>
                 <div style="display:grid;grid-template-columns:1fr 60px 60px;gap:2px;font-size:.78rem;margin-bottom:4px">
                   <div style="color:var(--txt3);font-size:.65rem">Juez</div>
                   <div style="text-align:center;color:var(--red);font-size:.65rem">${fA.name.split(' ').pop()}</div>
                   <div style="text-align:center;color:var(--blue);font-size:.65rem">${fB.name.split(' ').pop()}</div>
-                  ${jc.map(j=>{
-                    const aWins=j.sA>j.sB;
-                    return `<div style="color:var(--txt3)">Juez ${j.j}</div>
-                      <div style="text-align:center;font-weight:700;color:${aWins?'var(--red)':'var(--txt3)'}">${j.sA}</div>
-                      <div style="text-align:center;font-weight:700;color:${!aWins?'var(--blue)':'var(--txt3)'}">${j.sB}</div>`;
+                  ${jc.map((j,i)=>{
+                    const aWins=j.totalA>j.totalB;
+                    return `<div style="color:var(--txt3)">Juez ${i+1}</div>
+                      <div style="text-align:center;font-weight:700;color:${aWins?'var(--red)':'var(--txt3)'}">${j.totalA}</div>
+                      <div style="text-align:center;font-weight:700;color:${!aWins?'var(--blue)':'var(--txt3)'}">${j.totalB}</div>`;
                   }).join('')}
                 </div>
-                <div style="font-size:.7rem;color:var(--txt2);text-align:center;border-top:1px solid var(--line);padding-top:6px">${decType}</div>
+                <div style="font-size:.7rem;color:var(--txt2);text-align:center;border-top:1px solid var(--line);padding-top:6px">${methodLabel(result)}</div>
               </div>`;
             })()}
             ${(()=>{
