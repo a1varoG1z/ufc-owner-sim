@@ -1662,11 +1662,15 @@ function checkTitleDefensePressure(eventDate){
     if(!champ) return;
     const lastFight = champ.lastEventSeq!=null?
       STATE.events.find(e=>e.seq===champ.lastEventSeq&&e.status==='completed')?.date : null;
+    // Si no hay pelea simulada por el motor (campeón ya lo era al empezar la partida),
+    // usar la fecha en la que ganó su reinado actual — nunca inventar "999 días" sin dato real.
+    const currentReign = lastFight? null : (champ.titleReigns||[]).find(r=>r.titleId===title.id && !r.lostDate);
+    const referenceDate = lastFight || currentReign?.wonDate || null;
     const injured = champ.status==='injured';
-    const daysSince = lastFight? Math.round((new Date(eventDate)-new Date(lastFight))/86400000) : 999;
+    const daysSince = referenceDate? Math.round((new Date(eventDate)-new Date(referenceDate))/86400000) : null;
     const longInjury = injured && champ.injury?.untilDate &&
       Math.round((new Date(champ.injury.untilDate)-new Date(eventDate))/86400000)>90;
-    if(daysSince>270 || longInjury){
+    if((daysSince!=null && daysSince>270) || longInjury){
       alerts.push({title, champ, daysSince, longInjury});
     }
   });
@@ -2195,6 +2199,9 @@ function runPreEventInjuryCheck(ev, onDone){
     const candidates = STATE.fighters.filter(f=>{
       if(f.status!=='active' || f.id===hurtId || f.division!==hurt.division || bookedIds.has(f.id)) return false;
       if(f.injury?.active || f.suspension?.active) return false;
+      // El campeón (o interino) de la división nunca entra como sustituto de última hora
+      // de una pelea ajena — tiene sus propias obligaciones de título.
+      if(STATE.titles.some(t=>t.holderId===f.id||t.interimHolderId===f.id)) return false;
       if(f.lastEventSeq!=null){
         const lastEv = STATE.events.find(e=>e.seq===f.lastEventSeq && e.status==='completed');
         if(lastEv && (new Date(ev.date)-new Date(lastEv.date))/86400000 < MIN_DAYS_SINCE_LAST_FIGHT) return false;
@@ -3443,22 +3450,6 @@ function bindTitles(){
 
 function openTitleModal(tid){
   const t = STATE.titles.find(x=>x.id===tid); if(!t) return;
-  // Construir cronología: cada entrada del historial + sus datos de reinado (fechas, defensas)
-  const timeline = (t.history||[]).slice().sort((a,b)=> new Date(a.wonDate)-new Date(b.wonDate)).map((h,idx)=>{
-    const f = STATE.fighters.find(x=>x.id===h.fighterId);
-    const reign = f? (f.titleReigns||[]).find(r=>r.titleId===t.id && r.wonDate===h.wonDate) : null;
-    const lostDate = reign? reign.lostDate : null;
-    const defenses = reign? (reign.defenses||0) : 0;
-    const isInterim = reign? reign.isInterim : false;
-    const durationDays = Math.round((new Date(lostDate||STATE.meta.currentDate) - new Date(h.wonDate))/86400000);
-    return `<div class="fightcard-item">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <b>${idx+1}. ${f?f.name:'Desconocido'}</b>${isInterim?' <span class="pill interim">Interino</span>':''}${!lostDate?' <span class="pill champ">Vigente</span>':''}
-      </div>
-      <div class="muted">${fmtDate(h.wonDate)} → ${lostDate? fmtDate(lostDate) : 'actualidad'} (${durationDays} días) · ${defenses} defensa${defenses!==1?'s':''}</div>
-    </div>`;
-  }).join('') || '<p class="muted">Este título no ha tenido campeones todavía.</p>';
-
   document.getElementById('modalRoot').innerHTML = `
   <div class="modal-bg" id="modalBg">
     <div class="modal">
@@ -3470,8 +3461,6 @@ function openTitleModal(tid){
       <h3>🌳 Árbol genealógico</h3>
       <p class="muted" style="font-size:.72rem">Cadena de cómo cada campeón ganó el título a su predecesor.</p>
       ${tplChampionTree(t.id)}
-      <h3>Cronología detallada</h3>
-      ${timeline}
     </div>
   </div>`;
   document.getElementById('modalBg').onclick=e=>{ if(e.target.id==='modalBg') closeModal(); };
@@ -3746,7 +3735,7 @@ function fillFighterSelects(card){
     const champ=STATE.fighters.find(x=>x.id===fidA)||STATE.fighters.find(x=>x.id===fidB);
     const pressures=checkTitleDefensePressure(STATE.meta.currentDate);
     pressures.filter(p=>p.champ.id===fidA||p.champ.id===fidB).forEach(p=>{
-      alerts.push(`⚠️ ${fName(p.champ)} lleva ${p.daysSince>900?'mucho tiempo':p.daysSince+' días'} sin defender ${fName(p.title)}`);
+      alerts.push(`⚠️ ${fName(p.champ)} lleva ${(p.daysSince==null||p.daysSince>900)?'mucho tiempo':p.daysSince+' días'} sin defender ${fName(p.title)}`);
     });
     return alerts.length?`<div style="margin:3px 0;display:flex;flex-direction:column;gap:2px">${alerts.map(a=>`<span style="font-size:.68rem;color:#d4af37">${a}</span>`).join('')}</div>`:'';
   }
@@ -5930,6 +5919,7 @@ function tplTitleTimeline(tid){
       const active=!r.lostDate;
       return `<div style="margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+          <span style="font-size:.68rem;color:#555;min-width:16px">${i+1}.</span>
           <div class="clickable" data-id="${r.f.id}" style="font-weight:700;font-size:.82rem;min-width:120px;cursor:pointer;color:${col}">${fName(r.f)}${r.isInterim?' 🥈':''}</div>
           <div style="font-size:.72rem;color:#666">${r.wonDate} → ${r.lostDate||'presente'} · ${r.days}d · ${r.defenses}def</div>
           ${active?`<span style="font-size:.65rem;background:#1b5e20;color:#a5d6a7;padding:1px 5px;border-radius:3px">ACTUAL</span>`:''}
