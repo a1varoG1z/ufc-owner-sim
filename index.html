@@ -2937,9 +2937,9 @@ function tplFinance(){
   const payroll = activeFighters.reduce((s,f)=>s+(f.contract?.salary||0),0);
   const topContract = activeFighters.slice().sort((a,b)=>(b.contract?.salary||0)-(a.contract?.salary||0))[0];
 
-  const stat=(label,value,color)=>`<div style="background:#0d0d0d;border-radius:6px;padding:8px 6px;text-align:center">
+  const stat=(label,value,color)=>`<div style="background:#0d0d0d;border-radius:6px;padding:8px 6px;text-align:center;min-width:0">
     <div style="font-size:.6rem;color:#666;text-transform:uppercase;letter-spacing:.5px">${label}</div>
-    <div style="font-size:.95rem;font-weight:800;color:${color||'inherit'}">${value}</div>
+    <div style="font-size:.85rem;font-weight:800;color:${color||'inherit'};overflow-wrap:break-word">${value}</div>
   </div>`;
 
   return `
@@ -2956,7 +2956,7 @@ function tplFinance(){
 
   <div class="card">
     <h3>📊 Histórico acumulado (${completedEvents.length} eventos)</h3>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
       ${stat('📺 Compras PPV',lifetime.buys.toLocaleString(),'#82b1ff')}
       ${stat('Ingresos totales','$'+lifetime.revenue.toLocaleString(),'#69f0ae')}
       ${stat('Bolsas pagadas','$'+lifetime.purses.toLocaleString(),'#ef5350')}
