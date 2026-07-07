@@ -3161,7 +3161,7 @@ function openFighterModal(fid, context){
         </div>
       </div>
       ${f.imageUrl ? `<img src="${f.imageUrl}" class="fighterImg" onerror="this.style.display='none'">` : `<div style="width:90px;height:90px;margin:0 auto 10px;border-radius:50%;overflow:hidden">${proceduralAvatar(f,90)}</div>`}
-      <h2>${fName(f)}${f.nickname? ` <span class="muted" style="font-size:.8em">"${f.nickname}"</span>`:''} ${streakIcon}</h2>
+      <h2>${fName(f)} ${streakIcon}</h2>
       ${streakLabel?`<div style="font-size:.76rem;color:${mom>=3?'#ff6d00':'#82b1ff'};margin:2px 0 4px">${streakLabel}</div>`:''}
       ${f.hof? `<div class="hofBadge">🏛 MIEMBRO DEL HALL OF FAME</div>` : ''}
       ${unbeaten? `<div class="hofBadge" style="background:linear-gradient(90deg,#004d00,#00b300,#004d00);color:#e8ffe8">⚡ INVICTO ⚡</div>` : ''}
@@ -3410,7 +3410,7 @@ function tplTitles(){
       <b>${titleIcon(t)} ${fName(t)}</b>${t.isInterim?' <span class="pill interim">Interino</span>':''}
       <div class="muted">Campeón: ${holder? holder.name : 'Vacante'}${reign? ' · '+(reign.defenses||0)+' defensas':''}${t.interimHolderId?` · 🥈 Interino: ${(STATE.fighters.find(x=>x.id===t.interimHolderId)||{}).name||'?'}`:''}</div>
       <div class="muted">Reinados históricos: ${t.history.length} · Defensas totales registradas: ${totalDefenses} · <span style="color:var(--blue)">Ver cronología →</span></div>
-      ${holder? `<button class="btn small danger" data-vacate="${t.id}">Vacar título (lesión/retiro)</button>`:''}
+      ${holder? `<button class="btn small" data-vacate="${t.id}" style="background:transparent;border-color:var(--line);color:#888;font-size:.72rem">Vacar título (lesión/retiro)</button>`:''}
     </div>`;
   }).join('')}
   </div>
@@ -6295,7 +6295,6 @@ function tplStats(){
   <label>Filtrar por categoría</label>
   <select id="statsDivSel"><option value="ALL" ${divFilter==='ALL'?'selected':''}>Todas las categorías</option>${DIVISIONS.map(d=>`<option value="${d.id}" ${divFilter===d.id?'selected':''}>${divName(d.id)}</option>`).join('')}</select>
   </div>
-  <h3 style="margin:12px 8px 4px">🏆 Premios anuales</h3>
   ${awardsBlock}
   ${careerSection}
   <h3 style="margin:12px 8px 4px">🏆 Récords positivos</h3>
@@ -6478,14 +6477,23 @@ function tplHof(){
   const showAll = !!UI.hofShowAll;
   const fullList = STATE.fighters.slice().sort((a,b)=>goatScore(b)-goatScore(a));
   const goatList = showAll? fullList : fullList.slice(0,20);
+  const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':null;
+  const podiumRow = (f,i,extra='')=>{
+    const m = medal(i);
+    return `<div class="clickable fightcard-item" data-id="${f.id}" style="display:flex;align-items:center;gap:8px;padding:${i<3?'8px 6px':'5px 0'};${i<3?'background:rgba(212,175,55,.06);border-radius:8px':''}">
+      <span style="font-size:${i<3?'1.3rem':'.72rem'};color:${i<3?'inherit':'#555'};min-width:26px;text-align:center">${m||`#${i+1}`}</span>
+      ${avatarHtml(f,i<3?36:28)}
+      <span style="flex:1;font-size:${i<3?'.9rem':'.8rem'};font-weight:${i<3?'800':'400'}">${fName(f)}${f.status==='retired'?' <span class="muted" style="font-weight:400">(ret.)</span>':''}${f.hof?' 🏛':''}</span>
+      <span style="font-size:.7rem;color:#555">${f.record.wins}-${f.record.losses}</span>
+      ${extra}
+    </div>`;
+  };
   return `
   <div class="card"><h2>🏛 Hall of Fame</h2>
-  ${hofMembers.length? hofMembers.map(f=>`<div class="fightcard-item clickable" data-id="${f.id}"><b>${fName(f)}</b> <span class="muted">${f.record.wins}-${f.record.losses}</span> · GOAT score: ${goatScore(f)}</div>`).join(''):'<p class="muted">Aún no hay miembros. Indúcelos desde el Editor.</p>'}
+  ${hofMembers.length? hofMembers.map((f,i)=>podiumRow(f,i,`<span style="font-size:.68rem;color:#888">GOAT ${goatScore(f)}</span>`)).join(''):'<p class="muted">Aún no hay miembros. Indúcelos desde el Editor.</p>'}
   </div>
   <div class="card"><h3>Ranking GOAT (activos y retirados)</h3>
-  <table><thead><tr><th>#</th><th>Nombre</th><th>Récord</th><th>Score</th></tr></thead><tbody>
-  ${goatList.map((f,i)=>`<tr class="clickable" data-id="${f.id}"><td>${i+1}</td><td>${fName(f)}${f.status==='retired'?' (ret.)':''}${f.hof?' 🏛':''}</td><td>${f.record.wins}-${f.record.losses}</td><td>${goatScore(f)}</td></tr>`).join('')}
-  </tbody></table>
+  ${goatList.map((f,i)=>podiumRow(f,i,`<span style="font-size:.68rem;color:#888">${goatScore(f)}</span>`)).join('')}
   <button class="btn small full" id="toggleHofFull" style="margin-top:8px">${showAll? 'Mostrar solo Top 20 ▲' : `Ver lista completa (${fullList.length}) ▼`}</button>
   </div>`;
 }
@@ -6704,8 +6712,8 @@ function tplScout(){
             <span class="muted" style="font-size:.72rem"> · ${divName(f.division)}</span>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0">
-            ${canDown?`<button class="btn small wcMoveBtn" data-id="${f.id}" data-div="${downDiv.id}" style="font-size:.7rem;padding:3px 7px">↓ ${divName(downDiv.id).slice(0,8)}</button>`:''}
-            ${canUp?`<button class="btn small wcMoveBtn" data-id="${f.id}" data-div="${upDiv.id}" style="font-size:.7rem;padding:3px 7px">↑ ${divName(upDiv.id).slice(0,8)}</button>`:''}
+            ${canDown?`<button class="btn small wcMoveBtn" data-id="${f.id}" data-div="${downDiv.id}" style="font-size:.7rem;padding:3px 7px;white-space:nowrap">↓ ${divName(downDiv.id).replace('Peso ','').replace('Semipesado','SH')}</button>`:''}
+            ${canUp?`<button class="btn small wcMoveBtn" data-id="${f.id}" data-div="${upDiv.id}" style="font-size:.7rem;padding:3px 7px;white-space:nowrap">↑ ${divName(upDiv.id).replace('Peso ','').replace('Semipesado','SH')}</button>`:''}
           </div>
         </div>`;
       }).join('');
