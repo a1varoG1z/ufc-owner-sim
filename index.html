@@ -2937,9 +2937,9 @@ function tplFinance(){
   const payroll = activeFighters.reduce((s,f)=>s+(f.contract?.salary||0),0);
   const topContract = activeFighters.slice().sort((a,b)=>(b.contract?.salary||0)-(a.contract?.salary||0))[0];
 
-  const stat=(label,value,color)=>`<div style="background:#0d0d0d;border-radius:6px;padding:8px 6px;text-align:center">
+  const stat=(label,value,color)=>`<div style="background:#0d0d0d;border-radius:6px;padding:8px 6px;text-align:center;min-width:0">
     <div style="font-size:.6rem;color:#666;text-transform:uppercase;letter-spacing:.5px">${label}</div>
-    <div style="font-size:.95rem;font-weight:800;color:${color||'inherit'}">${value}</div>
+    <div style="font-size:.85rem;font-weight:800;color:${color||'inherit'};overflow-wrap:break-word">${value}</div>
   </div>`;
 
   return `
@@ -2956,7 +2956,7 @@ function tplFinance(){
 
   <div class="card">
     <h3>📊 Histórico acumulado (${completedEvents.length} eventos)</h3>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
       ${stat('📺 Compras PPV',lifetime.buys.toLocaleString(),'#82b1ff')}
       ${stat('Ingresos totales','$'+lifetime.revenue.toLocaleString(),'#69f0ae')}
       ${stat('Bolsas pagadas','$'+lifetime.purses.toLocaleString(),'#ef5350')}
@@ -4154,7 +4154,7 @@ function openContractNegotiation(fighterId){
   const rivalOffer = pending?.rivalOfferSalary || null;
   const maxRounds = 3;
   let round = 1;
-  let lastCounter = null;
+  let rejectedOffer = null;
   let offer = { salary: f.contract.salary, finishBonus: f.contract.finishBonus, fightsLeft: 3 };
 
   function desiredSalary(){
@@ -4167,6 +4167,13 @@ function openContractNegotiation(fighterId){
     base *= (1 + (f.contract.demandLevel||50)/250);
     if(rivalOffer) base = Math.max(base, rivalOffer.amount*1.05);
     return Math.round(base/500)*500;
+  }
+  // El mínimo real que aceptará — SIEMPRE es el mismo número que se le enseña al jugador
+  // (nunca una cifra intermedia inventada), para que igualar lo que "pide" cierre el trato
+  // de verdad, la primera vez, sin sorpresas.
+  function minAcceptable(){
+    const desired = desiredSalary();
+    return Math.round((desired*(1-(f.contract.loyalty||50)/500))/500)*500;
   }
 
   function resolveFighterLeaves(){
@@ -4188,14 +4195,15 @@ function openContractNegotiation(fighterId){
   }
 
   function renderNegotiation(){
-    const desired = desiredSalary();
+    const threshold = minAcceptable();
     document.getElementById('modalRoot').innerHTML = `
     <div class="modal-bg" id="modalBg">
       <div class="modal">
         <div class="section-title"><h3>💼 Negociación — ${fName(f)}</h3><button class="btn small closebtn" id="negClose">✕</button></div>
         <p class="muted" style="font-size:.78rem">Ronda ${round}/${maxRounds} · Reputación ${f.reputation||50} · Racha ${f.momentum||0} · Exigencia ${f.contract.demandLevel}/100 · Lealtad ${f.contract.loyalty}/100</p>
         ${rivalOffer?`<div class="fightcard-item" style="border-color:#ef5350"><b style="color:#ef5350">⚠️ ${rivalOffer.promoName}</b> le ha ofrecido <b>$${rivalOffer.amount.toLocaleString()}</b> por pelea.</div>`:''}
-        ${lastCounter?`<div class="fightcard-item">${fName(f)} pide <b>$${lastCounter.toLocaleString()}</b> por pelea para firmar.</div>`:''}
+        <div class="fightcard-item">${fName(f)} firma con una bolsa mínima de <b>$${threshold.toLocaleString()}</b> por pelea. Iguala o supera esa cifra y firma seguro.</div>
+        ${rejectedOffer!=null?`<p style="color:#ef5350;font-size:.78rem;margin:4px 0">Tu oferta anterior de $${rejectedOffer.toLocaleString()} se quedó corta.</p>`:''}
         <label>Tu oferta — bolsa por pelea ($)</label>
         <input type="number" step="1000" id="negSalary" value="${offer.salary}">
         <label>Bonus por finalización ($)</label>
@@ -4220,8 +4228,7 @@ function openContractNegotiation(fighterId){
       offer.finishBonus = parseInt(document.getElementById('negBonus').value)||0;
       offer.fightsLeft = clamp(parseInt(document.getElementById('negLength').value)||1,1,10);
 
-      const acceptThreshold = desired * (1 - (f.contract.loyalty||50)/500);
-      if(offer.salary >= acceptThreshold){
+      if(offer.salary >= threshold){
         if(!f.contractHistory) f.contractHistory=[];
         f.contractHistory.push({salary:f.contract.salary, finishBonus:f.contract.finishBonus, fightsLeft:f.contract.fightsLeft, signedDate:f.contract.signedDate||null, endedDate:STATE.meta.currentDate});
         f.contract.salary = offer.salary;
@@ -4235,7 +4242,7 @@ function openContractNegotiation(fighterId){
         return;
       }
       if(round>=maxRounds){ resolveFighterLeaves(); return; }
-      lastCounter = Math.round(((offer.salary+desired)/2)/1000)*1000;
+      rejectedOffer = offer.salary;
       round++;
       renderNegotiation();
     };
