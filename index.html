@@ -6967,14 +6967,23 @@ function tplEditor(){
 
   <div class="card">${tplRivalriesEditor()}</div>
 
+  <div class="card">${tplClausesEditor()}</div>
+
+  <div class="card">${tplCalloutsEditor()}</div>
+
   <div class="card">
     <h3>🏆 Gestión de títulos</h3>
-    <p class="muted">Asigna o vacía el campeón actual de cada título.</p>
+    <p class="muted">Asigna o vacía el campeón actual de cada título, renómbralo o elimínalo por completo.</p>
     ${STATE.titles.map(t=>{
       const holder = STATE.fighters.find(x=>x.id===t.holderId);
       return `<div class="fightcard-item">
         <b>${fName(t)}</b>${t.isInterim?' <span class="pill interim">Interino</span>':''}
         <div class="muted">Actual: ${holder?holder.name:'Vacante'}</div>
+        <label style="margin-top:6px">Nombre</label>
+        <div class="row">
+          <input class="titleNameFld" data-id="${t.id}" value="${t.name}" style="flex:1">
+          <button class="btn small titleRenameBtn" data-id="${t.id}" style="flex:0 0 auto">Renombrar</button>
+        </div>
         <div class="row" style="margin-top:6px">
           <select id="titleHolder_${t.id}">
             <option value="">— Vacante —</option>
@@ -6982,7 +6991,10 @@ function tplEditor(){
           </select>
           <label style="display:flex;align-items:center;gap:4px;flex:0 0 auto"><input type="checkbox" id="titleInterim_${t.id}" style="width:auto" ${t.isInterim?'checked':''}> Interino</label>
         </div>
-        <button class="btn small primary" style="margin-top:6px" data-settitle="${t.id}">Aplicar campeón</button>
+        <div class="row" style="margin-top:6px">
+          <button class="btn small primary" data-settitle="${t.id}">Aplicar campeón</button>
+          <button class="btn small danger titleDeleteBtn" data-id="${t.id}">✕ Eliminar título</button>
+        </div>
       </div>`;
     }).join('')}
   </div>
@@ -7143,6 +7155,8 @@ function tplBonusesForm(f){
     <div><label>Peleas de la Noche 🌟</label><input type="number" min="0" id="fld_fotn" value="${f.bonuses.fightOfNight||0}"></div>
     <div><label>Actuaciones de la Noche ⭐</label><input type="number" min="0" id="fld_potn" value="${f.bonuses.performanceOfNight||0}"></div>
   </div>
+  <label>Puntos ATP (ranking estilo tenis)</label>
+  <input type="number" min="0" id="fld_atpPoints" value="${STATE.atpPoints?.[f.id]||0}">
   <button class="btn primary full" id="saveBonusesBtn" style="margin-top:8px">Guardar bonos</button>
   `;
 }
@@ -7271,6 +7285,59 @@ function tplRivalriesEditor(){
   `;
 }
 
+function tplClausesEditor(){
+  const entries=Object.entries(STATE.rematches||{});
+  const activeOpts=STATE.fighters.filter(x=>x.status!=='retired').slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const typeLabels={rematch:'🔄 Revancha', titleShot:'🥊 Contendiente', unification:'🏆 Unificación'};
+  return `
+  <h3>📜 Cláusulas activas</h3>
+  <p class="muted" style="font-size:.78rem">Revancha, contendiente o unificación pendientes. Se consumen automáticamente al enfrentar a ese rival en un combate.</p>
+  ${entries.length===0?'<p class="muted">No hay cláusulas activas.</p>':entries.map(([fid,r])=>{
+    const f=STATE.fighters.find(x=>x.id===fid), opp=STATE.fighters.find(x=>x.id===r.opponentId);
+    if(!f) return '';
+    return `<div class="fightcard-item">
+      <b>${fName(f)}</b> → <b>${opp?fName(opp):'?'}</b>
+      <div class="muted" style="font-size:.72rem">${typeLabels[r.type]||r.type} · ${fmtDate(r.date)}</div>
+      <button class="btn small danger clauseDeleteBtn" data-fid="${fid}" style="margin-top:6px">✕ Cancelar cláusula</button>
+    </div>`;
+  }).join('')}
+  <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Crear cláusula manual</div>
+    <select id="newClauseFighter"><option value="">Peleador con la cláusula</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newClauseOpponent"><option value="">Rival de la cláusula</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newClauseType">
+      <option value="rematch">🔄 Revancha</option>
+      <option value="titleShot">🥊 Contendiente</option>
+      <option value="unification">🏆 Unificación</option>
+    </select>
+    <button class="btn primary full" id="addClauseBtn" style="margin-top:6px">Crear cláusula</button>
+  </div>
+  `;
+}
+
+function tplCalloutsEditor(){
+  const callouts=STATE.callouts||[];
+  const activeOpts=STATE.fighters.filter(x=>x.status!=='retired').slice().sort((a,b)=>a.name.localeCompare(b.name));
+  return `
+  <h3>📣 Callouts</h3>
+  <p class="muted" style="font-size:.78rem">Retos entre peleadores que aparecen en el Dashboard. Se generan automáticamente y expiran tras 4 eventos sin bookearse.</p>
+  ${callouts.length===0?'<p class="muted">No hay callouts activos.</p>':callouts.map(c=>{
+    const caller=STATE.fighters.find(x=>x.id===c.callerId), target=STATE.fighters.find(x=>x.id===c.targetId);
+    if(!caller||!target) return '';
+    return `<div class="fightcard-item">
+      <b>${fName(caller)}</b> reta a <b>${fName(target)}</b>
+      <button class="btn small danger calloutDeleteBtn" data-id="${c.id}" style="margin-top:6px">✕ Eliminar</button>
+    </div>`;
+  }).join('')}
+  <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Crear callout manual</div>
+    <select id="newCalloutCaller"><option value="">Retador</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newCalloutTarget"><option value="">Retado</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <button class="btn primary full" id="addCalloutBtn" style="margin-top:6px">Crear callout</button>
+  </div>
+  `;
+}
+
 function tplReignsForm(f){
   const reigns = f.titleReigns||[];
   return `
@@ -7339,8 +7406,14 @@ function tplFighterForm(f){
   <select id="fld_status">
     <option value="active" ${d.status==='active'?'selected':''}>Activo</option>
     <option value="injured" ${d.status==='injured'?'selected':''}>Lesionado</option>
+    <option value="suspended" ${d.status==='suspended'?'selected':''}>Sancionado</option>
+    <option value="free_agent" ${d.status==='free_agent'?'selected':''}>Agente libre</option>
     <option value="retired" ${d.status==='retired'?'selected':''}>Retirado</option>
   </select>
+  <div class="row">
+    <div><label>Sanción hasta (si aplica)</label><input type="date" id="fld_suspUntil" value="${d.suspension?.untilDate||''}"></div>
+    <div><label>Motivo de la sanción</label><input id="fld_suspNote" value="${d.suspension?.note||''}" placeholder="ej: Dopaje"></div>
+  </div>
   <label>Estilo de pelea</label>
   <select id="fld_style">
     ${Object.entries(FIGHT_STYLES).map(([k,v])=>`<option value="${k}" ${(d.fightStyle||'technical')===k?'selected':''}>${v.icon} ${v.label} — ${v.desc}</option>`).join('')}
@@ -7404,6 +7477,14 @@ function bindEditor(){
     if(!f){ f = {id:uid('F'), fightHistory:[], titleReigns:[], bonuses:{fightOfNight:0,performanceOfNight:0}, injury:{active:false,untilDate:null,note:''}, lastEventSeq:null, rankScore:0}; STATE.fighters.push(f); }
     f.name=get('fld_name'); f.nickname=get('fld_nick')||null; f.gender=get('fld_gender'); f.country=get('fld_country');
     f.dob=get('fld_dob'); f.debut=get('fld_debut'); f.division=get('fld_division'); f.status=get('fld_status');
+    if(f.status==='suspended'){
+      if(!f.suspension) f.suspension={active:true,history:[]};
+      f.suspension.active=true;
+      f.suspension.untilDate=get('fld_suspUntil')||null;
+      f.suspension.note=get('fld_suspNote')||'Sanción';
+    } else if(f.suspension){
+      f.suspension.active=false;
+    }
     f.imageUrl = get('fld_image').trim()||null;
     f.fightStyle = get('fld_style')||'technical';
     f.stats=stats; f.longevity=clamp(parseInt(get('fld_longevity'))||0,0,100);
@@ -7443,6 +7524,8 @@ function bindEditor(){
     const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
     f.bonuses.fightOfNight = parseInt(document.getElementById('fld_fotn').value)||0;
     f.bonuses.performanceOfNight = parseInt(document.getElementById('fld_potn').value)||0;
+    if(!STATE.atpPoints) STATE.atpPoints={};
+    STATE.atpPoints[f.id] = Math.max(0,parseInt(document.getElementById('fld_atpPoints').value)||0);
     saveLocal(); toast('Bonos guardados ✅');
   };
 
@@ -7549,6 +7632,24 @@ function bindEditor(){
       }
       rebuildTitleHistory(titleId);
       saveLocal(); render(); toast('Titular actualizado ✅');
+    };
+  });
+  document.querySelectorAll('.titleRenameBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const title=STATE.titles.find(t=>t.id===btn.dataset.id); if(!title) return;
+      const newName=document.querySelector(`.titleNameFld[data-id="${btn.dataset.id}"]`).value.trim();
+      if(!newName) return toast('El nombre no puede estar vacío','⚠️');
+      title.name=newName;
+      saveLocal(); render(); toast('Título renombrado ✅');
+    };
+  });
+  document.querySelectorAll('.titleDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const title=STATE.titles.find(t=>t.id===btn.dataset.id); if(!title) return;
+      if(!confirm(`¿Eliminar "${fName(title)}" definitivamente?\n\nSe borrará también su historial de reinados. Esta acción no se puede deshacer.`)) return;
+      STATE.titles=STATE.titles.filter(t=>t.id!==title.id);
+      STATE.fighters.forEach(f=>{ f.titleReigns=(f.titleReigns||[]).filter(r=>r.titleId!==title.id); });
+      saveLocal(); render(); toast('Título eliminado');
     };
   });
 
@@ -7798,6 +7899,40 @@ function bindEditor(){
       if(!STATE.fighters.some(f=>f.id===idA)||!STATE.fighters.some(f=>f.id===idB)){ delete STATE.rivalries[key]; removed++; }
     });
     saveLocal(); render(); toast(`${removed} rivalidad(es) huérfana(s) eliminada(s)`);
+  };
+
+  document.querySelectorAll('.clauseDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      delete STATE.rematches[btn.dataset.fid];
+      saveLocal(); render(); toast('Cláusula cancelada');
+    };
+  });
+  const addClauseBtn=document.getElementById('addClauseBtn');
+  if(addClauseBtn) addClauseBtn.onclick=()=>{
+    const fid=document.getElementById('newClauseFighter').value;
+    const oppId=document.getElementById('newClauseOpponent').value;
+    const type=document.getElementById('newClauseType').value;
+    if(!fid||!oppId||fid===oppId){ toast('Selecciona dos peleadores distintos','⚠️'); return; }
+    if(!STATE.rematches) STATE.rematches={};
+    STATE.rematches[fid]={opponentId:oppId, type, date:STATE.meta.currentDate};
+    saveLocal(); render(); toast('Cláusula creada ✅');
+  };
+
+  document.querySelectorAll('.calloutDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      STATE.callouts=(STATE.callouts||[]).filter(c=>c.id!==btn.dataset.id);
+      saveLocal(); render(); toast('Callout eliminado');
+    };
+  });
+  const addCalloutBtn=document.getElementById('addCalloutBtn');
+  if(addCalloutBtn) addCalloutBtn.onclick=()=>{
+    const callerId=document.getElementById('newCalloutCaller').value;
+    const targetId=document.getElementById('newCalloutTarget').value;
+    if(!callerId||!targetId||callerId===targetId){ toast('Selecciona dos peleadores distintos','⚠️'); return; }
+    const caller=STATE.fighters.find(x=>x.id===callerId);
+    if(!STATE.callouts) STATE.callouts=[];
+    STATE.callouts.push({id:uid('CO'), callerId, targetId, divisionId:caller.division, eventSeqIssued:STATE.meta.eventSeq});
+    saveLocal(); render(); toast('Callout creado ✅');
   };
 }
 
