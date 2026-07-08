@@ -3810,8 +3810,8 @@ function bindEvents(){
           } else {
             // Título interino: no puede haber ya un interino (a menos que sea uno de los dos)
             const interimTitle = STATE.titles.find(t=>t.divisionId===fA.division && t.interimHolderId);
-            if(interimTitle && interimTitle.holderId!==aId && interimTitle.holderId!==bId){
-              const h2 = STATE.fighters.find(x=>x.id===interimTitle.holderId);
+            if(interimTitle && interimTitle.interimHolderId!==aId && interimTitle.interimHolderId!==bId){
+              const h2 = STATE.fighters.find(x=>x.id===interimTitle.interimHolderId);
               return toast(`❌ Ya existe campeón interino (${h2?h2.name:'?'}). Quítale el título interino primero.`);
             }
             // Para un título interino de una división con campeón indiscutido, sí se permite
