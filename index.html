@@ -2225,12 +2225,18 @@ function runPreEventInjuryCheck(ev, onDone){
     const days=randi(30,90);
     const markInjured=()=>{ hurt.injury={active:true, untilDate:addDays(ev.date,days), note:'Lesión de campamento (baja de última hora)', type:'general'}; hurt.status='injured'; };
 
+    // Ranking del rival que se queda y de cada candidato — para poder juzgar si un sustituto
+    // es razonable frente a las expectativas de la pelea original (nivel de ranking), no solo
+    // frente a las estadísticas brutas de nivel/récord.
+    const oppRank = divisionFullRank(opp);
+    const oppRankTxt = oppRank ? `#${oppRank} ` : '';
+
     if(!candidates.length){
       document.getElementById('modalRoot').innerHTML=`
       <div class="modal-bg" id="modalBg">
         <div class="modal" style="text-align:center">
           <h3>🚑 Lesión de última hora</h3>
-          <p>${fName(hurt)} se ha lesionado en el campamento antes de su combate vs ${fName(opp)}.</p>
+          <p>${fName(hurt)} se ha lesionado en el campamento antes de su combate vs ${oppRankTxt}${fName(opp)}.</p>
           <p class="muted">No hay ningún peleador disponible de ${divName(hurt.division)} para sustituirlo — el combate se cancela.</p>
           <button class="btn primary full" id="injOk" style="margin-top:10px">Entendido</button>
         </div>
@@ -2249,8 +2255,11 @@ function runPreEventInjuryCheck(ev, onDone){
     <div class="modal-bg" id="modalBg">
       <div class="modal">
         <h3>🚑 Lesión de última hora</h3>
-        <p>${fName(hurt)} se ha lesionado en el campamento y no podrá pelear vs ${fName(opp)}. Elige su sustituto:</p>
-        <select id="injSubSel">${candidates.map(c=>`<option value="${c.id}">${fName(c)} (Nivel ${generalScore(c)} · ${c.record.wins}-${c.record.losses})</option>`).join('')}</select>
+        <p>${fName(hurt)} se ha lesionado en el campamento y no podrá pelear vs ${oppRankTxt}${fName(opp)}. Elige su sustituto:</p>
+        <select id="injSubSel">${candidates.map(c=>{
+          const cRank = divisionFullRank(c);
+          return `<option value="${c.id}">${cRank?`#${cRank} `:''}${fName(c)} (Nivel ${generalScore(c)} · ${c.record.wins}-${c.record.losses})</option>`;
+        }).join('')}</select>
         <div class="row" style="margin-top:10px">
           <button class="btn primary full" id="injConfirm">Confirmar sustituto</button>
         </div>
@@ -6209,6 +6218,27 @@ function getPfpRank(f){
 }
 function getDivRank(f){
   const list=divisionTop15(f.division);
+  const idx=list.findIndex(x=>x.id===f.id);
+  return idx>=0?idx+1:null;
+}
+// Igual que divisionTop15 pero sin recortar a 15 — para saber la posición real de cualquier
+// peleador de la división (por ejemplo, para juzgar si un sustituto de última hora es un
+// reemplazo razonable frente al rival original en términos de ranking, no solo de nivel bruto).
+function divisionFullRank(f){
+  const divTitle=STATE.titles.find(t=>t.divisionId===f.division && !t.isInterim)||{};
+  const champId=divTitle.holderId, interimId=divTitle.interimHolderId;
+  const list=STATE.fighters.filter(x=>x.division===f.division && x.status!=='retired')
+    .sort((a,b)=>{
+      if(a.id===champId) return -1;
+      if(b.id===champId) return 1;
+      if(a.id===interimId) return -1;
+      if(b.id===interimId) return 1;
+      const am=a.manualRankDivision, bm=b.manualRankDivision;
+      if(am!=null && bm!=null) return am-bm;
+      if(am!=null) return -1;
+      if(bm!=null) return 1;
+      return b.rankScore-a.rankScore;
+    });
   const idx=list.findIndex(x=>x.id===f.id);
   return idx>=0?idx+1:null;
 }
