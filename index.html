@@ -1591,12 +1591,22 @@ function rivalryKey(idA,idB){ return [idA,idB].sort().join('_'); }
 function updateRivalry(idA,idB,date){
   const k=rivalryKey(idA,idB);
   if(!STATE.rivalries) STATE.rivalries={};
-  STATE.rivalries[k]={ fights:(STATE.rivalries[k]?.fights||0)+1, lastDate:date };
+  const [sA,sB]=[idA,idB].sort();
+  STATE.rivalries[k]={ fights:(STATE.rivalries[k]?.fights||0)+1, lastDate:date, idA:sA, idB:sB };
 }
 function getRivalryFights(idA,idB){
   return STATE.rivalries?.[rivalryKey(idA,idB)]?.fights || 0;
 }
 function isRival(idA,idB){ return getRivalryFights(idA,idB)>=1; }
+// Los IDs de peleador siempre tienen forma "F_xxxxxxx" (un solo guion bajo). Las rivalidades
+// creadas antes de que la clave guardara idA/idB explícitamente pueden reconstruirse partiendo
+// la clave combinada en sus dos mitades, para que el Editor pueda mostrarlas con nombre.
+function rivalryIdsFromKey(key, riv){
+  if(riv?.idA && riv?.idB) return [riv.idA, riv.idB];
+  const parts=key.split('_');
+  if(parts.length!==4) return [null,null];
+  return [parts[0]+'_'+parts[1], parts[2]+'_'+parts[3]];
+}
 
 /* ====================== 9. NOTICIAS NARRATIVAS ====================== */
 const NEWS_TEMPLATES = [
@@ -4973,12 +4983,56 @@ function openLiveFightViewer(ev){
 // Separa la lógica de aplicar un resultado de combate al estado (usada por live viewer y simulate rápido)
 // Revierte todos los efectos de un evento ya completado (victorias, derrotas, KOs, títulos, bonos)
 function revertEvent(ev){
+  // Reembolsar el impacto económico del evento — si no, el presupuesto se queda con el
+  // beneficio/pérdida de un evento que ya no existe.
+  if(ev._finance){
+    STATE.meta.budget=(STATE.meta.budget||0)-(ev._finance.net||0);
+    recordBudgetTx(-(ev._finance.net||0), `Reversión de evento: ${fName(ev)}`, ev.date);
+  }
   ev.card.forEach(fight=>{
     if(!fight.result) return;
     const r=fight.result;
     const winner=STATE.fighters.find(x=>x.id===r.winnerId);
     const loser=STATE.fighters.find(x=>x.id===r.loserId);
     if(!winner||!loser) return;
+
+    // Revertir rivalidad (contador de enfrentamientos) — si esta pelea era su único
+    // enfrentamiento, elimina la entrada por completo en vez de dejarla en 0 huérfana.
+    const rk=rivalryKey(fight.fighterA,fight.fighterB);
+    if(STATE.rivalries?.[rk]){
+      STATE.rivalries[rk].fights=Math.max(0,(STATE.rivalries[rk].fights||0)-1);
+      if(STATE.rivalries[rk].fights<=0) delete STATE.rivalries[rk];
+    }
+
+    // Revertir reputación — la misma fórmula (determinista) que le aplicó applyFightResultToState.
+    updateReputation(winner, -(fight.titleId?12: r.method!=='Decisión'?6:3));
+    updateReputation(loser, -(fight.titleId?-8:-3));
+
+    // Revertir consumo de contrato y cualquier renegociación pendiente que este evento disparara.
+    [winner,loser].forEach(pf=>{
+      if(!pf.contract) return;
+      const hadPending=(STATE.pendingNegotiations||[]).find(n=>n.fighterId===pf.id && n.eventSeqCreated===ev.seq);
+      if(hadPending) STATE.pendingNegotiations=STATE.pendingNegotiations.filter(n=>n!==hadPending);
+      pf.contract.fightsLeft=(pf.contract.fightsLeft||0)+1;
+    });
+
+    // Revertir cláusulas (contendiente / unificación) que esta pelea hubiera activado.
+    if(STATE.rematches){
+      [winner.id, loser.id].forEach(fid=>{
+        if(STATE.rematches[fid]?.date===ev.date) delete STATE.rematches[fid];
+      });
+    }
+
+    // Revertir contador de peso fallido
+    if(fight.missedWeight){
+      const mf=STATE.fighters.find(x=>x.id===fight.missedWeight);
+      if(mf) mf.missedWeightCount=Math.max(0,(mf.missedWeightCount||0)-1);
+    }
+
+    // Revertir momentum — solo el caso de victoria es reversible con precisión (se sabe que
+    // sumó 1); una derrota reinicia el momentum a 0 y no queda registro de cuál era antes,
+    // así que esa parte queda como aproximación aceptada (igual que lastEventSeq más abajo).
+    if(winner.momentum>0) winner.momentum=Math.max(0,winner.momentum-1);
 
     // Revertir récord numérico
     winner.record.wins = Math.max(0, (winner.record.wins||0)-1);
@@ -5016,22 +5070,33 @@ function revertEvent(ev){
       // Restaurar lastEventSeq aproximado (sin historial completo, lo dejamos como null o el anterior)
       if(f.lastEventSeq===ev.seq) f.lastEventSeq=null;
     });
-    // Revertir títulos: eliminar el reinado que comenzó en este evento
+    // Revertir títulos — distingue reinado interino de principal en todo momento (holderId
+    // y interimHolderId son campos independientes; mezclarlos fue la causa de varios bugs
+    // anteriores con títulos interinos).
     if(fight.titleId){
       const title=STATE.titles.find(t=>t.id===fight.titleId);
       if(title){
+        const wasInterim=!!fight.isInterim;
         // Eliminar entrada en history del evento
         title.history=title.history.filter(h=>h.wonEventId!==ev.id);
-        // Eliminar reinado del ganador que empezó en este evento
-        winner.titleReigns=(winner.titleReigns||[]).filter(tr=>!(tr.titleId===fight.titleId && tr.wonDate===ev.date));
-        // Restaurar reinado anterior del poseedor que fue cerrado
-        // (buscamos el reinado del poseedor anterior que se cerró ese día)
-        STATE.fighters.forEach(f=>{
-          const r=(f.titleReigns||[]).find(tr=>tr.titleId===fight.titleId && tr.lostDate===ev.date);
-          if(r){ r.lostDate=null; title.holderId=f.id; title.isInterim=r.isInterim||false; }
-        });
-        // Si no había nadie antes (vacante), dejar vacante
-        if(title.history.length===0) title.holderId=null;
+
+        // ¿Este resultado creó un reinado nuevo (cambio de titular) o solo defendió uno existente?
+        const newReignRemoved=(winner.titleReigns||[]).some(tr=>tr.titleId===fight.titleId && !!tr.isInterim===wasInterim && tr.wonDate===ev.date);
+        winner.titleReigns=(winner.titleReigns||[]).filter(tr=>!(tr.titleId===fight.titleId && !!tr.isInterim===wasInterim && tr.wonDate===ev.date));
+
+        if(newReignRemoved){
+          // Cambio de titular: restaurar el reinado anterior que se cerró este día, si lo hubo
+          let restored=false;
+          STATE.fighters.forEach(f=>{
+            const r=(f.titleReigns||[]).find(tr=>tr.titleId===fight.titleId && !!tr.isInterim===wasInterim && tr.lostDate===ev.date);
+            if(r){ r.lostDate=null; if(wasInterim) title.interimHolderId=f.id; else title.holderId=f.id; restored=true; }
+          });
+          if(!restored){ if(wasInterim) title.interimHolderId=null; else title.holderId=null; }
+        } else {
+          // Solo fue una defensa: restar la defensa que se sumó
+          const reign=(winner.titleReigns||[]).find(tr=>tr.titleId===fight.titleId && !!tr.isInterim===wasInterim && !tr.lostDate);
+          if(reign) reign.defenses=Math.max(0,(reign.defenses||0)-1);
+        }
       }
     }
   });
@@ -6900,14 +6965,25 @@ function tplEditor(){
 
   <div class="card">${tplRivalPromotionsEditor()}</div>
 
+  <div class="card">${tplRivalriesEditor()}</div>
+
+  <div class="card">${tplClausesEditor()}</div>
+
+  <div class="card">${tplCalloutsEditor()}</div>
+
   <div class="card">
     <h3>🏆 Gestión de títulos</h3>
-    <p class="muted">Asigna o vacía el campeón actual de cada título.</p>
+    <p class="muted">Asigna o vacía el campeón actual de cada título, renómbralo o elimínalo por completo.</p>
     ${STATE.titles.map(t=>{
       const holder = STATE.fighters.find(x=>x.id===t.holderId);
       return `<div class="fightcard-item">
         <b>${fName(t)}</b>${t.isInterim?' <span class="pill interim">Interino</span>':''}
         <div class="muted">Actual: ${holder?holder.name:'Vacante'}</div>
+        <label style="margin-top:6px">Nombre</label>
+        <div class="row">
+          <input class="titleNameFld" data-id="${t.id}" value="${t.name}" style="flex:1">
+          <button class="btn small titleRenameBtn" data-id="${t.id}" style="flex:0 0 auto">Renombrar</button>
+        </div>
         <div class="row" style="margin-top:6px">
           <select id="titleHolder_${t.id}">
             <option value="">— Vacante —</option>
@@ -6915,7 +6991,10 @@ function tplEditor(){
           </select>
           <label style="display:flex;align-items:center;gap:4px;flex:0 0 auto"><input type="checkbox" id="titleInterim_${t.id}" style="width:auto" ${t.isInterim?'checked':''}> Interino</label>
         </div>
-        <button class="btn small primary" style="margin-top:6px" data-settitle="${t.id}">Aplicar campeón</button>
+        <div class="row" style="margin-top:6px">
+          <button class="btn small primary" data-settitle="${t.id}">Aplicar campeón</button>
+          <button class="btn small danger titleDeleteBtn" data-id="${t.id}">✕ Eliminar título</button>
+        </div>
       </div>`;
     }).join('')}
   </div>
@@ -7076,6 +7155,8 @@ function tplBonusesForm(f){
     <div><label>Peleas de la Noche 🌟</label><input type="number" min="0" id="fld_fotn" value="${f.bonuses.fightOfNight||0}"></div>
     <div><label>Actuaciones de la Noche ⭐</label><input type="number" min="0" id="fld_potn" value="${f.bonuses.performanceOfNight||0}"></div>
   </div>
+  <label>Puntos ATP (ranking estilo tenis)</label>
+  <input type="number" min="0" id="fld_atpPoints" value="${STATE.atpPoints?.[f.id]||0}">
   <button class="btn primary full" id="saveBonusesBtn" style="margin-top:8px">Guardar bonos</button>
   `;
 }
@@ -7166,6 +7247,97 @@ function tplRivalPromotionsEditor(){
   `;
 }
 
+function tplRivalriesEditor(){
+  const entries=Object.entries(STATE.rivalries||{}).map(([key,riv])=>{
+    const [idA,idB]=rivalryIdsFromKey(key,riv);
+    const fA=STATE.fighters.find(x=>x.id===idA), fB=STATE.fighters.find(x=>x.id===idB);
+    return {key,riv,fA,fB};
+  });
+  const valid=entries.filter(e=>e.fA&&e.fB).sort((a,b)=>(b.riv.fights||0)-(a.riv.fights||0));
+  const orphanCount=entries.length-valid.length;
+  const activeOpts=STATE.fighters.filter(x=>x.status!=='retired').slice().sort((a,b)=>a.name.localeCompare(b.name));
+  return `
+  <h3>⚔️ Rivalidades</h3>
+  <p class="muted" style="font-size:.78rem">Ajusta el número de enfrentamientos o la fecha del último combate entre dos peleadores, elimínala, o crea una rivalidad manual (útil para construir historia previa a la simulación). Se muestra como "Rivalidad" con 2+ combates, "oficial" con 3+.</p>
+  ${valid.length===0?'<p class="muted">No hay rivalidades registradas.</p>':valid.map(({key,riv,fA,fB})=>`
+    <div class="fightcard-item" data-rivkey="${key}">
+      <b>${fName(fA)}</b> vs <b>${fName(fB)}</b>
+      <div class="grid2" style="margin-top:6px">
+        <div><label>Combates</label><input type="number" min="0" class="rivFightsFld" data-key="${key}" value="${riv.fights||0}"></div>
+        <div><label>Última fecha</label><input type="date" class="rivDateFld" data-key="${key}" value="${riv.lastDate||''}"></div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn small primary rivalrySaveBtn" data-key="${key}">💾 Guardar</button>
+        <button class="btn small danger rivalryDeleteBtn" data-key="${key}">✕ Eliminar</button>
+      </div>
+    </div>`).join('')}
+  <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Crear rivalidad manual</div>
+    <select id="newRivalryA"><option value="">Peleador A</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newRivalryB"><option value="">Peleador B</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <div class="grid2" style="margin-top:6px">
+      <div><label>Combates</label><input type="number" min="1" id="newRivalryFights" value="2"></div>
+      <div><label>Última fecha</label><input type="date" id="newRivalryDate" value="${STATE.meta.currentDate}"></div>
+    </div>
+    <button class="btn primary full" id="addRivalryBtn" style="margin-top:6px">Crear rivalidad</button>
+  </div>
+  ${orphanCount>0?`<button class="btn small full" id="cleanOrphanRivalriesBtn" style="margin-top:10px">🧹 Limpiar ${orphanCount} rivalidad(es) huérfana(s) (peleador eliminado)</button>`:''}
+  `;
+}
+
+function tplClausesEditor(){
+  const entries=Object.entries(STATE.rematches||{});
+  const activeOpts=STATE.fighters.filter(x=>x.status!=='retired').slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const typeLabels={rematch:'🔄 Revancha', titleShot:'🥊 Contendiente', unification:'🏆 Unificación'};
+  return `
+  <h3>📜 Cláusulas activas</h3>
+  <p class="muted" style="font-size:.78rem">Revancha, contendiente o unificación pendientes. Se consumen automáticamente al enfrentar a ese rival en un combate.</p>
+  ${entries.length===0?'<p class="muted">No hay cláusulas activas.</p>':entries.map(([fid,r])=>{
+    const f=STATE.fighters.find(x=>x.id===fid), opp=STATE.fighters.find(x=>x.id===r.opponentId);
+    if(!f) return '';
+    return `<div class="fightcard-item">
+      <b>${fName(f)}</b> → <b>${opp?fName(opp):'?'}</b>
+      <div class="muted" style="font-size:.72rem">${typeLabels[r.type]||r.type} · ${fmtDate(r.date)}</div>
+      <button class="btn small danger clauseDeleteBtn" data-fid="${fid}" style="margin-top:6px">✕ Cancelar cláusula</button>
+    </div>`;
+  }).join('')}
+  <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Crear cláusula manual</div>
+    <select id="newClauseFighter"><option value="">Peleador con la cláusula</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newClauseOpponent"><option value="">Rival de la cláusula</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newClauseType">
+      <option value="rematch">🔄 Revancha</option>
+      <option value="titleShot">🥊 Contendiente</option>
+      <option value="unification">🏆 Unificación</option>
+    </select>
+    <button class="btn primary full" id="addClauseBtn" style="margin-top:6px">Crear cláusula</button>
+  </div>
+  `;
+}
+
+function tplCalloutsEditor(){
+  const callouts=STATE.callouts||[];
+  const activeOpts=STATE.fighters.filter(x=>x.status!=='retired').slice().sort((a,b)=>a.name.localeCompare(b.name));
+  return `
+  <h3>📣 Callouts</h3>
+  <p class="muted" style="font-size:.78rem">Retos entre peleadores que aparecen en el Dashboard. Se generan automáticamente y expiran tras 4 eventos sin bookearse.</p>
+  ${callouts.length===0?'<p class="muted">No hay callouts activos.</p>':callouts.map(c=>{
+    const caller=STATE.fighters.find(x=>x.id===c.callerId), target=STATE.fighters.find(x=>x.id===c.targetId);
+    if(!caller||!target) return '';
+    return `<div class="fightcard-item">
+      <b>${fName(caller)}</b> reta a <b>${fName(target)}</b>
+      <button class="btn small danger calloutDeleteBtn" data-id="${c.id}" style="margin-top:6px">✕ Eliminar</button>
+    </div>`;
+  }).join('')}
+  <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Crear callout manual</div>
+    <select id="newCalloutCaller"><option value="">Retador</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <select id="newCalloutTarget"><option value="">Retado</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
+    <button class="btn primary full" id="addCalloutBtn" style="margin-top:6px">Crear callout</button>
+  </div>
+  `;
+}
+
 function tplReignsForm(f){
   const reigns = f.titleReigns||[];
   return `
@@ -7234,8 +7406,14 @@ function tplFighterForm(f){
   <select id="fld_status">
     <option value="active" ${d.status==='active'?'selected':''}>Activo</option>
     <option value="injured" ${d.status==='injured'?'selected':''}>Lesionado</option>
+    <option value="suspended" ${d.status==='suspended'?'selected':''}>Sancionado</option>
+    <option value="free_agent" ${d.status==='free_agent'?'selected':''}>Agente libre</option>
     <option value="retired" ${d.status==='retired'?'selected':''}>Retirado</option>
   </select>
+  <div class="row">
+    <div><label>Sanción hasta (si aplica)</label><input type="date" id="fld_suspUntil" value="${d.suspension?.untilDate||''}"></div>
+    <div><label>Motivo de la sanción</label><input id="fld_suspNote" value="${d.suspension?.note||''}" placeholder="ej: Dopaje"></div>
+  </div>
   <label>Estilo de pelea</label>
   <select id="fld_style">
     ${Object.entries(FIGHT_STYLES).map(([k,v])=>`<option value="${k}" ${(d.fightStyle||'technical')===k?'selected':''}>${v.icon} ${v.label} — ${v.desc}</option>`).join('')}
@@ -7299,6 +7477,14 @@ function bindEditor(){
     if(!f){ f = {id:uid('F'), fightHistory:[], titleReigns:[], bonuses:{fightOfNight:0,performanceOfNight:0}, injury:{active:false,untilDate:null,note:''}, lastEventSeq:null, rankScore:0}; STATE.fighters.push(f); }
     f.name=get('fld_name'); f.nickname=get('fld_nick')||null; f.gender=get('fld_gender'); f.country=get('fld_country');
     f.dob=get('fld_dob'); f.debut=get('fld_debut'); f.division=get('fld_division'); f.status=get('fld_status');
+    if(f.status==='suspended'){
+      if(!f.suspension) f.suspension={active:true,history:[]};
+      f.suspension.active=true;
+      f.suspension.untilDate=get('fld_suspUntil')||null;
+      f.suspension.note=get('fld_suspNote')||'Sanción';
+    } else if(f.suspension){
+      f.suspension.active=false;
+    }
     f.imageUrl = get('fld_image').trim()||null;
     f.fightStyle = get('fld_style')||'technical';
     f.stats=stats; f.longevity=clamp(parseInt(get('fld_longevity'))||0,0,100);
@@ -7338,6 +7524,8 @@ function bindEditor(){
     const f = STATE.fighters.find(x=>x.id===UI.selectedFighter); if(!f) return;
     f.bonuses.fightOfNight = parseInt(document.getElementById('fld_fotn').value)||0;
     f.bonuses.performanceOfNight = parseInt(document.getElementById('fld_potn').value)||0;
+    if(!STATE.atpPoints) STATE.atpPoints={};
+    STATE.atpPoints[f.id] = Math.max(0,parseInt(document.getElementById('fld_atpPoints').value)||0);
     saveLocal(); toast('Bonos guardados ✅');
   };
 
@@ -7444,6 +7632,24 @@ function bindEditor(){
       }
       rebuildTitleHistory(titleId);
       saveLocal(); render(); toast('Titular actualizado ✅');
+    };
+  });
+  document.querySelectorAll('.titleRenameBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const title=STATE.titles.find(t=>t.id===btn.dataset.id); if(!title) return;
+      const newName=document.querySelector(`.titleNameFld[data-id="${btn.dataset.id}"]`).value.trim();
+      if(!newName) return toast('El nombre no puede estar vacío','⚠️');
+      title.name=newName;
+      saveLocal(); render(); toast('Título renombrado ✅');
+    };
+  });
+  document.querySelectorAll('.titleDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const title=STATE.titles.find(t=>t.id===btn.dataset.id); if(!title) return;
+      if(!confirm(`¿Eliminar "${fName(title)}" definitivamente?\n\nSe borrará también su historial de reinados. Esta acción no se puede deshacer.`)) return;
+      STATE.titles=STATE.titles.filter(t=>t.id!==title.id);
+      STATE.fighters.forEach(f=>{ f.titleReigns=(f.titleReigns||[]).filter(r=>r.titleId!==title.id); });
+      saveLocal(); render(); toast('Título eliminado');
     };
   });
 
@@ -7654,6 +7860,80 @@ function bindEditor(){
     STATE.fighters.push(restoreFighterFromRival(rf, isChamp));
     saveLocal(); render(); toast(`${rf.name} fichado a tu roster ✅`);
   };
+
+  document.querySelectorAll('.rivalrySaveBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const key=btn.dataset.key;
+      const riv=STATE.rivalries?.[key]; if(!riv) return;
+      const card=btn.closest('.fightcard-item');
+      const fights=Math.max(0,parseInt(card.querySelector('.rivFightsFld').value)||0);
+      const date=card.querySelector('.rivDateFld').value||riv.lastDate;
+      if(fights<=0){ delete STATE.rivalries[key]; toast('Rivalidad eliminada (0 combates)'); }
+      else { riv.fights=fights; riv.lastDate=date; toast('Rivalidad actualizada ✅'); }
+      saveLocal(); render();
+    };
+  });
+  document.querySelectorAll('.rivalryDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      if(!confirm('¿Eliminar esta rivalidad?')) return;
+      delete STATE.rivalries[btn.dataset.key];
+      saveLocal(); render(); toast('Rivalidad eliminada');
+    };
+  });
+  const addRivalryBtn=document.getElementById('addRivalryBtn');
+  if(addRivalryBtn) addRivalryBtn.onclick=()=>{
+    const aId=document.getElementById('newRivalryA').value, bId=document.getElementById('newRivalryB').value;
+    if(!aId||!bId||aId===bId){ toast('Selecciona dos peleadores distintos','⚠️'); return; }
+    const fights=Math.max(1,parseInt(document.getElementById('newRivalryFights').value)||1);
+    const date=document.getElementById('newRivalryDate').value||STATE.meta.currentDate;
+    if(!STATE.rivalries) STATE.rivalries={};
+    const [sA,sB]=[aId,bId].sort();
+    STATE.rivalries[rivalryKey(aId,bId)]={fights, lastDate:date, idA:sA, idB:sB};
+    saveLocal(); render(); toast('Rivalidad creada ✅');
+  };
+  const cleanOrphanRivalriesBtn=document.getElementById('cleanOrphanRivalriesBtn');
+  if(cleanOrphanRivalriesBtn) cleanOrphanRivalriesBtn.onclick=()=>{
+    let removed=0;
+    Object.keys(STATE.rivalries||{}).forEach(key=>{
+      const [idA,idB]=rivalryIdsFromKey(key,STATE.rivalries[key]);
+      if(!STATE.fighters.some(f=>f.id===idA)||!STATE.fighters.some(f=>f.id===idB)){ delete STATE.rivalries[key]; removed++; }
+    });
+    saveLocal(); render(); toast(`${removed} rivalidad(es) huérfana(s) eliminada(s)`);
+  };
+
+  document.querySelectorAll('.clauseDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      delete STATE.rematches[btn.dataset.fid];
+      saveLocal(); render(); toast('Cláusula cancelada');
+    };
+  });
+  const addClauseBtn=document.getElementById('addClauseBtn');
+  if(addClauseBtn) addClauseBtn.onclick=()=>{
+    const fid=document.getElementById('newClauseFighter').value;
+    const oppId=document.getElementById('newClauseOpponent').value;
+    const type=document.getElementById('newClauseType').value;
+    if(!fid||!oppId||fid===oppId){ toast('Selecciona dos peleadores distintos','⚠️'); return; }
+    if(!STATE.rematches) STATE.rematches={};
+    STATE.rematches[fid]={opponentId:oppId, type, date:STATE.meta.currentDate};
+    saveLocal(); render(); toast('Cláusula creada ✅');
+  };
+
+  document.querySelectorAll('.calloutDeleteBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      STATE.callouts=(STATE.callouts||[]).filter(c=>c.id!==btn.dataset.id);
+      saveLocal(); render(); toast('Callout eliminado');
+    };
+  });
+  const addCalloutBtn=document.getElementById('addCalloutBtn');
+  if(addCalloutBtn) addCalloutBtn.onclick=()=>{
+    const callerId=document.getElementById('newCalloutCaller').value;
+    const targetId=document.getElementById('newCalloutTarget').value;
+    if(!callerId||!targetId||callerId===targetId){ toast('Selecciona dos peleadores distintos','⚠️'); return; }
+    const caller=STATE.fighters.find(x=>x.id===callerId);
+    if(!STATE.callouts) STATE.callouts=[];
+    STATE.callouts.push({id:uid('CO'), callerId, targetId, divisionId:caller.division, eventSeqIssued:STATE.meta.eventSeq});
+    saveLocal(); render(); toast('Callout creado ✅');
+  };
 }
 
 // Sincroniza el titular de un cinturón cuando se edita un reinado
@@ -7796,11 +8076,33 @@ function tplGuide(){
 
   <div class="card">
     <h3>📅 Cooldown entre peleas</h3>
-    <p class="muted" style="font-size:.82rem">Un peleador necesita tiempo de recuperación entre combates según su longevidad:</p>
+    <p class="muted" style="font-size:.82rem">Un peleador necesita tiempo de recuperación entre combates según su longevidad. Este mismo mínimo aplica también para poder entrar como <b>sustituto de última hora</b> — nadie está "disponible" bajo un criterio distinto según la situación:</p>
     <div style="font-size:.78rem">
       <div>• Longevidad &gt;60: mínimo <b>100 días</b></div>
       <div>• Longevidad 30-60: mínimo <b>130 días</b></div>
       <div>• Longevidad &lt;30: mínimo <b>160 días</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>⚖️ Corte de peso y peso fallido</h3>
+    <p class="muted" style="font-size:.82rem">Cada peleador recibe automáticamente un modo de corte de peso al confirmarse el combate (no es una elección manual):</p>
+    <div style="font-size:.78rem;line-height:1.7">
+      <div>• <b>Agresivo</b> (~12%): 16% de fallar el peso, pero da +3 a los atributos ese combate (más deshidratado en el pesaje, más rehidratado el día de la pelea).</div>
+      <div>• <b>Seguro</b> (~30%): 2% de fallar el peso.</div>
+      <div>• <b>Normal</b> (~58%): 6% de fallar el peso.</div>
+    </div>
+    <p class="muted" style="font-size:.78rem">💡 Regla real de la UFC si quien falla el peso gana el combate: en pelea de <b>título</b>, el campeón <b>retiene</b> el cinturón sin importar el resultado; si el propio campeón (o un título vacante) falla el peso, el título queda <b>vacante</b>. Fuera de pelea de título, el combate se cuenta con normalidad pero el infractor no puede ganar cinturón alguno.</p>
+  </div>
+
+  <div class="card">
+    <h3>🚑 Lesión de última hora (sustitutos)</h3>
+    <p class="muted" style="font-size:.82rem">Antes de simular un evento, cada combate tiene una pequeña probabilidad de que uno de los dos se lesione en el campamento. Si ocurre, eliges sustituto entre los candidatos realmente disponibles:</p>
+    <div style="font-size:.78rem;line-height:1.7">
+      <div>• Mismo cooldown que la disponibilidad general entre eventos (100-160 días según longevidad) — nadie recién salido de una pelea puede entrar de urgencia.</div>
+      <div>• No reservado en ningún otro cartel programado, ni lesionado, ni sancionado.</div>
+      <div>• El campeón o campeón interino de la división nunca aparece como sustituto de una pelea ajena.</div>
+      <div>• Los candidatos se ordenan por nivel; si no hay ninguno disponible, el combate se cancela y el lesionado queda de baja varias semanas.</div>
     </div>
   </div>
 
@@ -7811,9 +8113,20 @@ function tplGuide(){
       <div style="padding:4px 0;border-bottom:1px solid #1a1a1a"><b>💥 KO por categoría de peso:</b> Pesados +22%, Semipesados +11%, Pesos Medios +4%. Los combates de peso pesado tienen ~40% KO, los de mosca ~20%.</div>
       <div style="padding:4px 0;border-bottom:1px solid #1a1a1a"><b>⚡ KO por estilo:</b> Finalizadores y Contragolpeadores tienen multiplicadores de +20% y +12% respectivamente sobre sus probabilidades de nocaut.</div>
       <div style="padding:4px 0;border-bottom:1px solid #1a1a1a"><b>🩸 Salud por zona:</b> La cabeza/cuerpo/piernas acumulan daño entre asaltos. La cabeza dañada = más KO. Cuerpo dañado = menos cardio. Piernas dañadas = peor defensa de derribos.</div>
-      <div style="padding:4px 0;border-bottom:1px solid #1a1a1a"><b>📋 Decisión dividida:</b> Si el ganador gana 2-1 en asaltos, hay ~18% probabilidad de Decisión Dividida y ~8% de Decisión por Mayoría.</div>
       <div style="padding:4px 0"><b>🏥 Parada médica:</b> Con daño acumulado severo en cabeza, el médico puede parar el combate entre asaltos (~1.5% de combates). Cuenta como KO/TKO.</div>
     </div>
+  </div>
+
+  <div class="card">
+    <h3>📋 Tarjetas de los jueces</h3>
+    <p class="muted" style="font-size:.8rem">Las decisiones siguen el sistema real de 10 puntos obligatorios de la UFC, con 3 jueces independientes:</p>
+    <div style="font-size:.78rem;line-height:1.7">
+      <div>• <b>Ganador del asalto: 10 puntos.</b> Perdedor: <b>9</b> en un asalto normal, <b>8</b> en un asalto dominante (margen muy amplio o doble derribo/castigo claro).</div>
+      <div>• <b>No existe descuento de puntos por derribo.</b> En la UFC real, las deducciones solo ocurren por faltas (golpes ilegales, agarrar la valla…), nunca por conseguir un derribo.</div>
+      <div>• En asaltos reñidos, cada juez tiene una pequeña probabilidad de ver el ganador al revés que las estadísticas reales del asalto — así es como discrepan los jueces de verdad.</div>
+      <div>• <b>UD (Unánime):</b> los 3 jueces coinciden. <b>SD (Dividida):</b> 2 jueces para el ganador, 1 para el perdedor. <b>MD (Mayoría):</b> 2 jueces para el ganador, 1 ve el combate empatado.</div>
+    </div>
+    <p class="muted" style="margin-top:8px;font-size:.78rem">💡 Verificado con miles de combates simulados: ~85% Unánime, ~11% Dividida, ~4% Mayoría — en línea con las proporciones reales de la UFC. Las tarjetas se muestran en el resultado del combate, el visor en vivo y el resumen de evento.</p>
   </div>
 
   <div class="card">
@@ -7828,6 +8141,33 @@ function tplGuide(){
       <div style="padding:4px 0"><b>🏔️ Ctrl/pelea</b> — Minutos de control posicional promedio por combate.</div>
     </div>
     <p class="muted" style="margin-top:8px;font-size:.78rem">💡 Los <b>badges de Top 5</b> en el perfil se recalculan en tiempo real comparando con todos los peleadores activos con 2+ peleas UFC.</p>
+  </div>
+
+  <div class="card">
+    <h3>💼 Contratos y renegociación</h3>
+    <p class="muted" style="font-size:.8rem">Cada peleador tiene bolsa por pelea, bonus por finalización (~40% de la bolsa), peleas restantes en el contrato, exigencia (0-100, ligada a su nivel) y lealtad (0-100, resistencia a irse por dinero).</p>
+    <div style="font-size:.78rem;line-height:1.7">
+      <div>• Al agotarse las peleas del contrato, se abre una negociación de hasta 3 rondas.</div>
+      <div>• Desde la primera ronda se muestra la bolsa mínima real que aceptará — igualar o superar esa cifra firma el contrato inmediatamente, sin sorpresas.</div>
+      <div>• Una promotora rival puede ofertar por el peleador durante la negociación, presionando la cifra al alza.</div>
+      <div>• Si no se llega a un acuerdo en 3 rondas, el peleador queda libre (o ficha por la rival si había oferta de por medio).</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🏢 Promotoras rivales</h3>
+    <p class="muted" style="font-size:.8rem">3 promotoras compiten con la tuya, cada una con su propio roster, campeones y presupuesto. Simulan sus propios eventos automáticamente al terminar los tuyos.</p>
+    <div style="font-size:.78rem;line-height:1.7">
+      <div>• Puedes comprar los derechos de cualquier peleador de su roster para ficharlo.</div>
+      <div>• El prestigio de cada promotora fluctúa con sus resultados pero siempre revierte hacia su nivel base, para que ninguna converja a la cima con el tiempo.</div>
+      <div>• Puedes ver su cartelera reciente y comparar tu cuota de prestigio con la suya en la pestaña Promotoras.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>⚔️ Rivalidades</h3>
+    <p class="muted" style="font-size:.8rem">Se activan automáticamente cuando dos peleadores se enfrentan 2 o más veces. Con 3+ combates pasa a ser "rivalidad oficial".</p>
+    <p class="muted" style="font-size:.78rem">💡 Una pelea de rivalidad genera un ~12-20% más de ingresos que una pelea equivalente sin historia — el público paga por ver un ajuste de cuentas.</p>
   </div>
 
   <div class="card">
