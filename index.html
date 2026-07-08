@@ -2710,7 +2710,7 @@ function tplRivalries(){
         </div>
       </div>
       ${fights.map((f,i)=>{const mc=m=>methodColor(m);const t=f.ft.titleId?STATE.titles.find(x=>x.id===f.ft.titleId):null;
-        return `<div style="font-size:.72rem;padding:3px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between"><span>${i+1}. <b>${f.w?.name||'?'}</b> vence · ${fmtDate(f.date)}</span><span style="color:${mc(f.ft.result.method)}">${methodAbbr(f.ft.result)} R${f.ft.result.round}${t?' 🏆':''}</span></div>`;
+        return `<div style="font-size:.72rem;padding:3px 0;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between"><span>${i+1}. <b>${f.w?.name||'?'}</b> vence · ${fmtDate(f.date)}</span><span style="color:${mc(f.ft.result.method)}">${methodAbbr(f.ft.result)} R${f.ft.result.round}${t?' 🏆':''}${f.ft.result.missedWeight?' <span style="color:#ffb300">⚖️</span>':''}</span></div>`;
       }).join('')}
     </div>`;
   }).join('')}`;
@@ -3127,7 +3127,8 @@ function openFighterModal(fid, context){
     const r=found.ft.result; const opp = STATE.fighters.find(x=>x.id===(r.winnerId===f.id?r.loserId:r.winnerId));
     const won = r.winnerId===f.id;
     const belt = found.ft.titleId? ` ${titleIcon(STATE.titles.find(t=>t.id===found.ft.titleId)||{})} <b>Combate por el título</b>` : '';
-    return `<div class="clickable" onclick="showFightById('${found.ev.id}','${found.ft.id}')" style="padding:3px 0;border-bottom:1px solid #0d0d0d;cursor:pointer">${won?'✅':'❌'} vs ${opp?opp.name:'?'} — <span style="color:${r.method==='KO/TKO'?'#ef5350':r.method==='Sumisión'?'#ce93d8':'#aaa'}">${methodAbbr(r)}</span> R${r.round} · <span class="muted">${fmtDate(found.ev.date)} · ${fName(found.ev)}</span>${belt}</div>`;
+    const missedW = r.missedWeight? (r.missedWeight===f.id? ' <span style="color:#ffb300">⚖️ No dio el peso</span>' : ` <span style="color:#ffb300">⚖️ ${opp?.name||'Rival'} no dio el peso</span>`) : '';
+    return `<div class="clickable" onclick="showFightById('${found.ev.id}','${found.ft.id}')" style="padding:3px 0;border-bottom:1px solid #0d0d0d;cursor:pointer">${won?'✅':'❌'} vs ${opp?opp.name:'?'} — <span style="color:${r.method==='KO/TKO'?'#ef5350':r.method==='Sumisión'?'#ce93d8':'#aaa'}">${methodAbbr(r)}</span> R${r.round} · <span class="muted">${fmtDate(found.ev.date)} · ${fName(found.ev)}</span>${belt}${missedW}</div>`;
   }).join('') || '<p class="muted">Sin combates simulados.</p>';
 
   // Posición en rankings para peleadores activos
@@ -3176,7 +3177,12 @@ function openFighterModal(fid, context){
   <h3>Récord en peleas titulares</h3>
   <div style="background:var(--bg3);border-radius:6px;padding:8px 10px;font-size:.78rem">
     <div style="margin-bottom:4px"><b>${titleWins}-${titleLosses}</b> en peleas por el título${titleFights.filter(x=>x.isInterim).length?` (incluye ${titleFights.filter(x=>x.isInterim).length} interino/s)`:''}</div>
-    ${titleFights.slice(-6).reverse().map(x=>`<div style="padding:2px 0">${x.won?'👑':'❌'} ${x.isInterim?'🥈':'🏆'} vs ${x.opp?.name||'?'} — ${methodLabel(x.ft.result)} R${x.ft.result.round} (${fmtDate(x.ev.date)})</div>`).join('')}
+    ${titleFights.slice(-6).reverse().map(x=>{
+      const missedSelf = x.ft.result.missedWeight===f.id;
+      const icon = x.won ? (missedSelf?'⚖️':'👑') : '❌';
+      const missedNote = missedSelf? ' <span style="color:#ffb300">(no dio el peso — no gana el título)</span>' : (x.ft.result.missedWeight? ` <span style="color:#ffb300">(${x.opp?.name||'rival'} no dio el peso)</span>` : '');
+      return `<div style="padding:2px 0">${icon} ${x.isInterim?'🥈':'🏆'} vs ${x.opp?.name||'?'} — ${methodLabel(x.ft.result)} R${x.ft.result.round} (${fmtDate(x.ev.date)})${missedNote}</div>`;
+    }).join('')}
   </div>`:'';
 
   document.getElementById('modalRoot').innerHTML = `
@@ -4016,6 +4022,7 @@ function showFightResultModal(fight, ev){
         <div style="font-size:1.2rem;font-weight:900;color:${isKO?'#ef5350':isSub?'#ce93d8':'#90caf9'};margin:4px 0">${method_label}</div>
         <div style="font-size:.82rem;color:#aaa">Ronda <b style="color:#fff">${r.round}</b> · <b style="color:#fff">${r.time}</b></div>
         ${scorecardsHtml?`<div style="font-size:.75rem;color:#888;margin-top:4px">📋 Tarjetas: <b style="color:#ccc">${scorecardsHtml}</b></div>`:''}
+        ${r.missedWeight?`<div style="font-size:.75rem;color:#ffb300;margin-top:4px">⚖️ ${fName(STATE.fighters.find(x=>x.id===r.missedWeight)||{})} no dio el peso${fight.titleId?' — el título no cambia de manos por reglamento':''}</div>`:''}
       </div>
       ${r.fightOfNight||r.isFOTN?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">🌟 Pelea de la Noche</div>':''}
       ${r.performance?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">⭐ Actuación de la Noche</div>':''}
@@ -4567,7 +4574,7 @@ function openLiveFightViewer(ev){
 
   function renderFightViewer(){
     clearTicker();
-    const {fight, fA, fB, result, narrative} = results[fightIdx];
+    const {fight, fA, fB, result, narrative, missedId} = results[fightIdx];
     const title = fight.titleId? STATE.titles.find(t=>t.id===fight.titleId):null;
     const w=result.winner, l=result.loser;
     const isKO=result.method==='KO/TKO', isSub=result.method==='Sumisión';
@@ -4884,6 +4891,7 @@ function openLiveFightViewer(ev){
               <div style="font-size:1.4rem;font-weight:900;color:${resultMethodColor};margin:4px 0">${methodLabel(result)}</div>
               <div style="font-size:.9rem;color:var(--txt2)">Ronda <b style="color:#fff">${result.round}</b> · <b style="color:#fff">${result.time}</b></div>
               ${result.judgeScores?`<div style="font-size:.78rem;color:var(--txt2);margin-top:4px">📋 Tarjetas: <b style="color:#fff">${result.judgeScores.map(jc=>{const wS=w.id===fA.id?jc.totalA:jc.totalB, lS=w.id===fA.id?jc.totalB:jc.totalA; return `${wS}-${lS}`;}).join(' · ')}</b></div>`:''}
+              ${missedId?`<div style="font-size:.78rem;color:#ffb300;margin-top:4px">⚖️ ${fName(STATE.fighters.find(x=>x.id===missedId)||{})} no dio el peso${fight.titleId?' — el título no cambia de manos por reglamento':''}</div>`:''}
             </div>
             ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
             ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
@@ -5171,17 +5179,12 @@ function applyFightResultToState(fight, fA, fB, result, ev){
       richToast(`${fName(winner)} obtiene cláusula de contendiente para ${divName(winner.division)}!`,'🥊','#82b1ff',5000);
     }
   }
-  // Título interino: el ganador obtiene cláusula de unificación con el campeón indiscutido
-  if(fight.titleId&&fight.isInterim){
-    const mainTitle=STATE.titles.find(t=>t.divisionId===winner.division&&!t.isInterim&&!t.vacated);
-    if(mainTitle&&mainTitle.holderId&&mainTitle.holderId!==winner.id){
-      if(!STATE.rematches) STATE.rematches={};
-      STATE.rematches[winner.id]={opponentId:mainTitle.holderId, type:'unification', titleId:fight.titleId, date:ev.date};
-      const champ=STATE.fighters.find(x=>x.id===mainTitle.holderId);
-      logEvent(`🏆 ${fName(winner)} es nuevo campeón interino — Cláusula de unificación vs ${champ?.name||'el campeón'}!`);
-      richToast(`${fName(winner)} es campeón interino — debe unificar vs ${champ?.name||'el campeón'}!`,'🏆','#ffd700',6000);
-    }
-  }
+  // Nota: la cláusula de unificación para un nuevo campeón interino se crea más abajo, dentro
+  // del bloque "Título" — ahí SÍ se comprueba primero si el ganador falló el peso (en cuyo caso
+  // no hay campeón interino nuevo y no debe generarse ninguna cláusula). Antes había un bloque
+  // duplicado aquí que se disparaba sin mirar el peso, creando una cláusula de unificación falsa
+  // (y el toast de "nuevo campeón interino") incluso cuando el ganador no se hacía con el título
+  // por no dar el peso.
   // Eliminar cláusula de revancha si estos dos peleadores acaban de usarla
   if(STATE.rematches){
     if(STATE.rematches[fA.id]?.opponentId===fB.id){ delete STATE.rematches[fA.id]; logEvent(`🔄 Cláusula de revancha consumida: ${fName(fA)} vs ${fB.name}.`); }
@@ -5260,6 +5263,7 @@ function applyFightResultToState(fight, fA, fB, result, ev){
         STATE.rematches[winner.id]={opponentId:mainTitle.holderId,type:'unification',titleId:mainTitle.id,date:ev.date};
         const champ=STATE.fighters.find(x=>x.id===mainTitle.holderId);
         logEvent(`🏆 Cláusula de unificación activa: ${fName(winner)} vs ${champ?.name||'el campeón'}.`);
+        richToast(`${fName(winner)} es campeón interino — debe unificar vs ${champ?.name||'el campeón'}!`,'🏆','#ffd700',6000);
       }
       return;
     }
@@ -6104,7 +6108,7 @@ function tplComparator(){
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.78rem">
           <span style="font-weight:700;color:${won?'#e53935':'#1565c0'}">${won?fName(fA):fName(fB)}</span>
           <div style="text-align:center">
-            <div style="color:${mc};font-weight:700;font-size:.72rem">${methodAbbr(f)}</div>
+            <div style="color:${mc};font-weight:700;font-size:.72rem">${methodAbbr(f)}${f.missedWeight?' ⚖️':''}</div>
             <div style="color:#555;font-size:.65rem">R${f.round} · ${f.time} · ${f.date?.slice(0,7)||''}</div>
           </div>
           <span style="color:#555">${won?fName(fB):fName(fA)}</span>
