@@ -2193,9 +2193,9 @@ function runPreEventInjuryCheck(ev, onDone){
     const oppId = fight[side==='fighterA'?'fighterB':'fighterA'];
     const opp = STATE.fighters.find(x=>x.id===oppId);
     // Disponible para la fecha del combate = activo (ni lesionado, ni sancionado, ni retirado),
-    // sin compromiso en otro cartel, y con al menos un mes de descanso desde su última pelea —
-    // nadie entra de sustituto de última hora recién salido de octágono.
-    const MIN_DAYS_SINCE_LAST_FIGHT = 30;
+    // sin compromiso en otro cartel, y con el MISMO descanso mínimo que exige fighterAvailable()
+    // para cualquier pelea normal (90-160 días según longevidad) — un sustituto de última hora
+    // no puede estar "disponible" bajo un criterio más laxo que el resto del roster.
     const candidates = STATE.fighters.filter(f=>{
       if(f.status!=='active' || f.id===hurtId || f.division!==hurt.division || bookedIds.has(f.id)) return false;
       if(f.injury?.active || f.suspension?.active) return false;
@@ -2204,7 +2204,11 @@ function runPreEventInjuryCheck(ev, onDone){
       if(STATE.titles.some(t=>t.holderId===f.id||t.interimHolderId===f.id)) return false;
       if(f.lastEventSeq!=null){
         const lastEv = STATE.events.find(e=>e.seq===f.lastEventSeq && e.status==='completed');
-        if(lastEv && (new Date(ev.date)-new Date(lastEv.date))/86400000 < MIN_DAYS_SINCE_LAST_FIGHT) return false;
+        if(lastEv){
+          const daysSinceLast = (new Date(ev.date)-new Date(lastEv.date))/86400000;
+          const minDays = f.longevity>60 ? 100 : (f.longevity>30 ? 130 : 160);
+          if(daysSinceLast < minDays) return false;
+        }
       }
       return true;
     }).sort((a,b)=>generalScore(b)-generalScore(a));
