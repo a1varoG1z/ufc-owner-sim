@@ -3953,7 +3953,7 @@ function showFightResultModal(fight, ev){
   if(!w||!l) return;
   const isKO=r.method==='KO/TKO', isSub=r.method==='Sumisión';
   const title=fight.titleId?STATE.titles.find(t=>t.id===fight.titleId):null;
-  const champChange=fight.titleId&&r.winnerId!==title?.holderId;
+  const champChange=fight.titleId&&r.winnerId!==(fight.isInterim?title?.interimHolderId:title?.holderId);
   const method_label=r.method+(r.decType?' '+r.decType:'');
   // Tarjetas de los 3 jueces (solo existen si el combate acabó por decisión) — se muestran
   // siempre con la puntuación del ganador primero, sin importar en qué esquina peleara.
@@ -4837,7 +4837,8 @@ function openLiveFightViewer(ev){
 
     } else {
       // PANTALLA RESULTADO FINAL
-      const champChange = fight.titleId && result.winner.id !== (STATE.titles.find(t=>t.id===fight.titleId)||{}).holderId;
+      const _champTitle = STATE.titles.find(t=>t.id===fight.titleId);
+      const champChange = fight.titleId && result.winner.id !== (fight.isInterim ? _champTitle?.interimHolderId : _champTitle?.holderId);
       document.getElementById('modalRoot').innerHTML=`
       <div class="fv-modal-bg" id="modalBg">
         <div class="fv-modal">
@@ -5151,6 +5152,15 @@ function applyFightResultToState(fight, fA, fB, result, ev){
           logEvent(`⚖️ ${fName(winner)} gana pero falla el peso — el título interino de ${divName(divId)} queda VACANTE.`);
           richToast(`Título interino VACANTE: ${fName(winner)} falló el peso.`,'⚖️','#ffb300',5500);
         }
+        return;
+      }
+
+      // DEFENSA del interino actual — igual que la defensa del título principal más abajo,
+      // faltaba este caso: sin él, un interino que defiende con éxito no sumaba defensa alguna.
+      if(winner.id===prevInterim){
+        const reign=(winner.titleReigns||[]).find(r=>r.titleId===mainTitle.id&&r.isInterim&&!r.lostDate);
+        if(reign) reign.defenses=(reign.defenses||0)+1;
+        logEvent(`🛡️ ${fName(winner)} defiende el título interino de ${fName(mainTitle)} (defensa nº ${reign?.defenses||1}).`);
         return;
       }
 
@@ -5692,7 +5702,7 @@ function showEventSummary(ev, completedFights){
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(212,175,55,.2)">
       <span style="font-size:1.5rem">${titleIcon(t)}</span>
       <div>
-        <div style="font-weight:800;color:#d4af37">${fName(w)} ${newChamp&&ft.result.winnerId!==t.holderId?'🆕 NUEVO CAMPEÓN':''}</div>
+        <div style="font-weight:800;color:#d4af37">${fName(w)} ${newChamp&&ft.result.winnerId!==(ft.isInterim?t.interimHolderId:t.holderId)?'🆕 NUEVO CAMPEÓN':''}</div>
         <div style="font-size:.75rem;color:#aaa">${fName(t)}${ft.isInterim?' (Interino)':''} · def. ${l?.name||'?'} por ${methodLabel(ft.result)} R${ft.result.round}</div>
       </div>
     </div>`;
