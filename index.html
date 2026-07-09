@@ -5421,6 +5421,20 @@ function applyFightResultToState(fight, fA, fB, result, ev){
     if(loser.chinDamage==null) loser.chinDamage=0;
     loser.chinDamage = Math.min(loser.chinDamage + randi(2,4), 30);
   }
+  // Si el combate nació de un callout, el perdedor tiene una probabilidad de pedir la
+  // revancha (nuevo callout con los roles invertidos) — mucho más alta tras una decisión
+  // reñida/polémica que tras un finish contundente, y nula si queda lesionado o se retira.
+  if(fight.isCallout && loser.status==='active'){
+    const revengeProb = result.method!=='Decisión' ? 0.1 : (result.decType==='Unánime' ? 0.3 : 0.6);
+    if(Math.random()<revengeProb){
+      if(!STATE.callouts) STATE.callouts=[];
+      const alreadyInvolved = STATE.callouts.some(c=>c.callerId===loser.id||c.targetId===loser.id);
+      if(!alreadyInvolved){
+        STATE.callouts.push({id:uid('CO'), callerId:loser.id, targetId:winner.id, divisionId:loser.division, eventSeqIssued:STATE.meta.eventSeq});
+        logEvent(`📣 ${fName(loser)} pide la revancha tras perder vs ${fName(winner)}.`);
+      }
+    }
+  }
   // Registrar knockdowns en el récord narrativo
   if(result.knockdownsA>0) logEvent(`⚡ ${fName(winner)} tumbó a ${fName(loser)} ${result.knockdownsA}x en este combate.`);
   if(result.knockdownsB>0) logEvent(`⚡ ${fName(loser)} tumbó a ${fName(winner)} ${result.knockdownsB}x pero no ganó el combate.`);
