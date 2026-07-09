@@ -370,6 +370,10 @@ function estimateEventBuys(ev){
   buys *= 1 + Math.min(0.15, restPower/100*0.03);
   return buys;
 }
+// Opción de Fantasía "Contratos infinitos": no se usa Infinity (JSON.stringify lo convierte en
+// null, rompiendo el guardado) — un centinela grande de sobra hace de "número infinito" a
+// efectos prácticos, y se muestra como "∞" en la interfaz.
+const INFINITE_FIGHTS_LEFT = 999999;
 function makeContract(level, rep){
   const power = starPower(level, rep);
   const base = starPayCurve(power);
@@ -3428,7 +3432,7 @@ function openFighterModal(fid, context){
           <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;font-size:.85rem">
             <span>Bolsa: <b>$${(c.salary||0).toLocaleString()}</b>/pelea</span>
             <span>Bonus finalización: <b>$${(c.finishBonus||0).toLocaleString()}</b></span>
-            <span>Peleas restantes: <b>${c.fightsLeft??'-'}</b></span>
+            <span>Peleas restantes: <b>${c.fightsLeft>=INFINITE_FIGHTS_LEFT?'∞':(c.fightsLeft??'-')}</b></span>
           </div>
           <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;font-size:.72rem;color:#999">
             <span>Exigencia: ${c.demandLevel??'-'}/100</span>
@@ -5411,9 +5415,14 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   // Sponsors: pueden llegar o irse según reputación y resultado
   maybeUpdateSponsor(winner, true, result.method);
   maybeUpdateSponsor(loser, false, result.method);
-  // Contrato: consumir una pelea del contrato de ambos peleadores
+  // Contrato: consumir una pelea del contrato de ambos peleadores — salvo con la opción de
+  // Fantasía "Contratos infinitos" activada, donde ningún contrato caduca nunca.
   [winner, loser].forEach(pf=>{
     if(!pf.contract) pf.contract = makeContract(generalScore(pf), pf.reputation);
+    if(STATE.meta.infiniteContracts){
+      pf.contract.fightsLeft = INFINITE_FIGHTS_LEFT;
+      return;
+    }
     pf.contract.fightsLeft = Math.max(0, (pf.contract.fightsLeft||0)-1);
     if(pf.contract.fightsLeft<=0 && pf.status==='active' && !(STATE.pendingNegotiations||[]).some(n=>n.fighterId===pf.id)){
       if(!STATE.pendingNegotiations) STATE.pendingNegotiations=[];
@@ -7478,7 +7487,7 @@ function tplContractForm(f){
     <div><label>Bonus por finalización ($)</label><input type="number" min="0" step="1000" id="fld_finishBonus" value="${c.finishBonus}"></div>
   </div>
   <div class="grid2">
-    <div><label>Peleas restantes en el contrato</label><input type="number" min="0" max="20" id="fld_fightsLeft" value="${c.fightsLeft}"></div>
+    <div><label>Peleas restantes en el contrato</label><input type="number" min="0" max="${INFINITE_FIGHTS_LEFT}" id="fld_fightsLeft" value="${c.fightsLeft}"></div>
     <div><label>Exigencia al negociar (0-100)</label><input type="number" min="0" max="100" id="fld_demandLevel" value="${c.demandLevel}"></div>
   </div>
   <label>Lealtad (0-100) — resistencia a irse por dinero a una rival</label>
@@ -8060,7 +8069,7 @@ function bindEditor(){
     if(!f.contract) f.contract = makeContract(generalScore(f), f.reputation);
     f.contract.salary = parseInt(document.getElementById('fld_salary').value)||0;
     f.contract.finishBonus = parseInt(document.getElementById('fld_finishBonus').value)||0;
-    f.contract.fightsLeft = clamp(parseInt(document.getElementById('fld_fightsLeft').value)||0,0,20);
+    f.contract.fightsLeft = clamp(parseInt(document.getElementById('fld_fightsLeft').value)||0,0,INFINITE_FIGHTS_LEFT);
     f.contract.demandLevel = clamp(parseInt(document.getElementById('fld_demandLevel').value)||0,0,100);
     f.contract.loyalty = clamp(parseInt(document.getElementById('fld_loyalty').value)||0,0,100);
     saveLocal(); toast('Contrato guardado ✅');
@@ -8548,6 +8557,18 @@ function tplSettings(){
         </span>
       </label>
     </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+      <div>
+        <div style="font-weight:700;font-size:.88rem">♾️ Contratos infinitos</div>
+        <div class="muted" style="font-size:.74rem;margin-top:3px">Ningún contrato caduca — nunca se genera una renovación pendiente. Al activarlo, los contratos ya pendientes de renovar se renuevan al momento a plazo infinito.</div>
+      </div>
+      <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;margin-left:12px">
+        <input type="checkbox" id="fantasyInfiniteContracts" ${STATE.meta.infiniteContracts?'checked':''} style="opacity:0;width:0;height:0">
+        <span style="position:absolute;cursor:pointer;inset:0;background:${STATE.meta.infiniteContracts?'#d4af37':'#333'};border-radius:24px;transition:.3s">
+          <span style="position:absolute;height:18px;width:18px;left:${STATE.meta.infiniteContracts?'23':'3'}px;bottom:3px;background:white;border-radius:50%;transition:.3s"></span>
+        </span>
+      </label>
+    </div>
   </div>
   <div class="card">
     <h2>☁️ Guardado en GitHub</h2>
@@ -8644,6 +8665,36 @@ function bindSettings(){
         span.firstElementChild.style.left=freezeToggle.checked?'23px':'3px';
       }
       toast(freezeToggle.checked?'🔒 Nivel de peleadores bloqueado':'🔓 Nivel de peleadores activado');
+    };
+  }
+  const infiniteContractsToggle = document.getElementById('fantasyInfiniteContracts');
+  if(infiniteContractsToggle){
+    infiniteContractsToggle.onchange=()=>{
+      STATE.meta.infiniteContracts = infiniteContractsToggle.checked;
+      if(STATE.meta.infiniteContracts){
+        // Todos los contratos activos pasan a plazo infinito de inmediato, incluidos los que ya
+        // estaban pendientes de renovar — se renuevan al momento en vez de esperar a que el
+        // jugador negocie o a que la resolución automática por olvido actúe.
+        STATE.fighters.forEach(f=>{
+          if(!f.contract) return;
+          if((STATE.pendingNegotiations||[]).some(n=>n.fighterId===f.id)){
+            if(!f.contractHistory) f.contractHistory=[];
+            f.contractHistory.push({salary:f.contract.salary, finishBonus:f.contract.finishBonus, fightsLeft:f.contract.fightsLeft, signedDate:f.contract.signedDate||null, endedDate:STATE.meta.currentDate});
+          }
+          f.contract.fightsLeft = INFINITE_FIGHTS_LEFT;
+        });
+        STATE.pendingNegotiations = [];
+        toast('♾️ Contratos infinitos activados — se renuevan solos, para siempre');
+      } else {
+        // Al desactivarlo, vuelve a un contrato normal (peleas restantes al azar) para que el
+        // ciclo de renovaciones se retome de inmediato, en vez de tardar cientos de combates en
+        // consumir el centinela de "infinito".
+        STATE.fighters.forEach(f=>{
+          if(f.contract && f.contract.fightsLeft>=INFINITE_FIGHTS_LEFT) f.contract.fightsLeft = randi(2,5);
+        });
+        toast('Contratos infinitos desactivados — vuelven a caducar con normalidad');
+      }
+      saveLocal(); render();
     };
   }
   document.getElementById('saveCfg').onclick=()=>{
