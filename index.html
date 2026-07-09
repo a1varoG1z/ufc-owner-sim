@@ -323,14 +323,15 @@ function starPayCurve(power){
 // que realmente cobra — ver el comentario en finishEvent). Reutilizado también por el creador
 // de eventos para mostrar una estimación de ingresos/beneficio antes de simular.
 function fairPurse(level, rep){ return starPayCurve(starPower(level, rep))*1.08; }
-// opts: {isTitle, isInterim, isMinorTitle, isContender, isRival} — el hype/estipulación del
-// combate también vende entradas y PPV, no solo la fama individual de cada peleador.
+// opts: {isTitle, isInterim, isMinorTitle, isContender, isRival, isCallout} — el hype/estipulación
+// del combate también vende entradas y PPV, no solo la fama individual de cada peleador.
 function estimateFightRevenue(fairA, fairB, opts){
   opts = opts||{};
   let rev=(fairA+fairB)*1.13+12000;
   if(opts.isTitle) rev *= opts.isInterim ? 1.12 : opts.isMinorTitle ? 1.15 : 1.25;
   if(opts.isContender) rev *= 1.08;
   if(opts.isRival) rev *= 1.12;
+  if(opts.isCallout) rev *= 1.10;
   return rev;
 }
 function fightRevenueOpts(ft, a, b){
@@ -341,6 +342,7 @@ function fightRevenueOpts(ft, a, b){
     isMinorTitle: title?.kind==='minor',
     isContender: !!ft.isContender,
     isRival: (a && b) ? isRival(a.id, b.id) : false,
+    isCallout: !!ft.isCallout,
   };
 }
 // Estimación de "compras PPV" — una métrica de cara al jugador, independiente de la economía
@@ -2157,7 +2159,10 @@ function createEvent(name, date){
 function addFightToEvent(ev, fAId, fBId, titleId=null, isInterim=false, isMain=false, isContender=false){
   // El corte de peso ya no es una decisión manual: cada peleador lo elige por su cuenta
   // (autoWeightCutMode) justo antes de simularse el combate — ver checkMissWeight().
-  ev.card.push({id:uid('FT'), fighterA:fAId, fighterB:fBId, titleId, isInterim, isMain, isContender, weightCutA:null, weightCutB:null, result:null});
+  // Si esta pareja tiene un callout pendiente, se marca ANTES de resolverlo (lo que sigue
+  // borra la entrada de STATE.callouts), para que el combate recuerde que nació de un pique.
+  const isCallout = (STATE.callouts||[]).some(c=>(c.callerId===fAId&&c.targetId===fBId)||(c.callerId===fBId&&c.targetId===fAId));
+  ev.card.push({id:uid('FT'), fighterA:fAId, fighterB:fBId, titleId, isInterim, isMain, isContender, isCallout, weightCutA:null, weightCutB:null, result:null});
   resolveCalloutIfMatched(fAId, fBId);
 }
 
@@ -2584,7 +2589,12 @@ function bindDashboard(){
       const callerId=btn.dataset.caller, targetId=btn.dataset.target;
       const caller=STATE.fighters.find(x=>x.id===callerId), target=STATE.fighters.find(x=>x.id===targetId);
       if(!caller||!target) return;
-      const ev = createEvent(`${caller.name} vs ${target.name}`, addDays(STATE.meta.currentDate,21));
+      // Acceso rápido: crea un evento nuevo solo para este callout, con el nombre que elijas.
+      // Para meterlo en una cartelera ya existente junto a otros combates, ve a Eventos → el
+      // callout aparece ahí como cualquier otra pelea que se pueda "usar" en el matchmaking.
+      const name = prompt('Nombre del evento para este callout:', `${caller.name} vs ${target.name}`);
+      if(name===null) return;
+      const ev = createEvent(name.trim()||`${caller.name} vs ${target.name}`, addDays(STATE.meta.currentDate,21));
       addFightToEvent(ev, callerId, targetId);
       saveLocal(); UI.tab='events'; render();
       toast(`📅 Evento creado: ${fName(caller)} vs ${fName(target)}`);
@@ -3561,7 +3571,7 @@ function tplEvents(){
               </div>
               <div style="text-align:right;white-space:nowrap;font-size:.72rem">
                 ${r?`<span style="color:${methodColor};font-weight:700">${methodLabel(r)}</span> <span style="color:#555">R${r.round}</span>`:'<span style="color:#555">-</span>'}
-                ${r?.isFOTN?' 🌟':''}${r?.isPOTN?' ⭐':''}
+                ${r?.isFOTN?' 🌟':''}${r?.isPOTN?' ⭐':''}${ft.isCallout?' 📣':''}
                 ${missedW?` <span style="color:#ff8f00;font-size:.65rem">⚖️</span>`:''}
               </div>
             </div>`;
@@ -3587,10 +3597,27 @@ function tplEventBuilder(ev){
       return `<div style="font-size:.75rem;padding:2px 0;display:flex;justify-content:space-between"><span><b>${fName(f)}</b> vs ${fName(opp)}</span><span style="color:${typeColor};font-size:.7rem">${typeLabel}</span></div>`;
     }).filter(Boolean).join('')}
   </div>`:'';
+  // Callouts pendientes: se pueden meter como un combate más de esta cartelera (con el nombre
+  // que el jugador ya le haya puesto al evento) — sube la expectación, no obliga a crear un
+  // evento aparte para el callout.
+  const pendingCallouts = STATE.callouts||[];
+  const calloutsHtml = pendingCallouts.length?`
+  <div style="background:rgba(255,138,101,.08);border:1px solid #5a3a2a;border-radius:8px;padding:8px 10px;margin-bottom:8px">
+    <div style="font-size:.65rem;color:#ff8a65;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">📣 Callouts pendientes — cárgalo y añádelo a esta cartelera</div>
+    ${pendingCallouts.map(c=>{
+      const caller=STATE.fighters.find(x=>x.id===c.callerId), target=STATE.fighters.find(x=>x.id===c.targetId);
+      if(!caller||!target) return '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;gap:6px">
+        <span style="font-size:.75rem"><b>${fName(caller)}</b> reta a <b>${fName(target)}</b></span>
+        <button class="btn small fillCalloutBtn" data-ev="${ev.id}" data-caller="${caller.id}" data-target="${target.id}" style="font-size:.68rem;white-space:nowrap">🔥 Usar</button>
+      </div>`;
+    }).filter(Boolean).join('')}
+  </div>`:'';
   return `
   <div class="card" data-ev="${ev.id}">
     <div class="section-title"><h3>${fName(ev)}</h3><span class="muted">${fmtDate(ev.date)}</span></div>
     ${clausesHtml}
+    ${calloutsHtml}
     <div class="row">
       <select class="evDivFilter">${opts}</select>
     </div>
@@ -3624,7 +3651,7 @@ function tplEventBuilder(ev){
             <button class="btn small reorderDown" data-ev="${ev.id}" data-idx="${idx}" ${idx===ev.card.length-1?'disabled':''} style="padding:1px 5px;font-size:.7rem">▼</button>
           </div>
           <div style="flex:1">
-            <div><b>${idx+1}.</b> ${a?a.name:'?'} <span class="vs">VS</span> ${b?b.name:'?'} ${a&&b&&isRival(a.id,b.id)?'<span class="pill" style="font-size:.65rem;background:#7b1fa2">⚔️ REVANCHA</span>':''}</div>
+            <div><b>${idx+1}.</b> ${a?a.name:'?'} <span class="vs">VS</span> ${b?b.name:'?'} ${a&&b&&isRival(a.id,b.id)?'<span class="pill" style="font-size:.65rem;background:#7b1fa2">⚔️ REVANCHA</span>':''}${ft.isCallout?'<span class="pill" style="font-size:.65rem;background:#c1440e">🔥 CALLOUT</span>':''}</div>
             ${t?`<div class="muted" style="font-size:.75rem">${titleIcon(t)} ${fName(t)}${ft.isInterim?' (interino)':''}</div>`:''}
             ${ft.isContender?`<div style="font-size:.7rem;color:#82b1ff">🥊 Pelea de contendiente</div>`:''}
             ${(()=>{
@@ -3850,6 +3877,20 @@ function bindEvents(){
       const isContender = card.querySelector('.evContender')?.checked||false;
       addFightToEvent(ev, aId, bId, titleId, isInterim, false, isContender);
       saveLocal(); render(); toast('Combate añadido ✅');
+    };
+  });
+  document.querySelectorAll('.fillCalloutBtn').forEach(btn=>{
+    btn.onclick=e=>{
+      e.stopPropagation();
+      const card = btn.closest('.card');
+      const caller = STATE.fighters.find(x=>x.id===btn.dataset.caller);
+      if(!caller||!card) return;
+      card.querySelector('.evDivFilter').value = caller.division;
+      fillFighterSelects(card);
+      const aSel=card.querySelector('.evFighterA'), bSel=card.querySelector('.evFighterB');
+      aSel.value = btn.dataset.caller; bSel.value = btn.dataset.target;
+      aSel.onchange();
+      toast('🔥 Callout cargado — pulsa "Añadir combate a la cartelera" para confirmarlo');
     };
   });
   document.querySelectorAll('.posterBtn').forEach(btn=>{
@@ -5023,6 +5064,12 @@ function revertEvent(ev){
       STATE.rivalries[rk].fights=Math.max(0,(STATE.rivalries[rk].fights||0)-1);
       if(STATE.rivalries[rk].fights<=0) delete STATE.rivalries[rk];
     }
+    // Si el combate nació de un callout, el pique nunca llegó a disputarse de verdad — se
+    // devuelve a la lista de callouts pendientes (fighterA es siempre el retador original).
+    if(fight.isCallout){
+      if(!STATE.callouts) STATE.callouts=[];
+      STATE.callouts.push({id:uid('CO'), callerId:fight.fighterA, targetId:fight.fighterB, divisionId:winner.division, eventSeqIssued:STATE.meta.eventSeq});
+    }
 
     // Revertir reputación — la misma fórmula (determinista) que le aplicó applyFightResultToState.
     updateReputation(winner, -(fight.titleId?12: r.method!=='Decisión'?6:3));
@@ -5835,6 +5882,7 @@ function showEventSummary(ev, completedFights){
             ${isPOTN?`<span style="font-size:.7rem;background:#1a3a00;color:#81c784;padding:1px 5px;border-radius:4px">⭐ POTN</span>`:''}
             ${rivalry>=2?`<span style="font-size:.7rem;background:#1a0030;color:#ce93d8;padding:1px 5px;border-radius:4px">⚔️ x${rivalry}</span>`:''}
             ${isMissWeight?`<span style="font-size:.7rem;background:#3e0000;color:#ef9a9a;padding:1px 5px;border-radius:4px">⚖️ Sobrepeso</span>`:''}
+            ${ft.isCallout?`<span style="font-size:.7rem;background:#3e1a00;color:#ffab91;padding:1px 5px;border-radius:4px">📣 Callout</span>`:''}
             ${streak>=3?`<span style="font-size:.7rem;background:#001a3e;color:#82b1ff;padding:1px 5px;border-radius:4px">🔥 ${streak} seguidas</span>`:''}
           </div>
           <div style="margin-top:4px;font-weight:${isMain?'800':'700'};font-size:${isMain?'.95rem':'.85rem'}">
