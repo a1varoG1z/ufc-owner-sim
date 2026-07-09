@@ -248,6 +248,7 @@ function freshState(){
     callouts: [], // [{id, callerId, targetId, divisionId, eventSeqIssued}] retos entre peleadores
     budgetLedger: [], // [{date, amount, reason, balance}] historial de movimientos de presupuesto
     playerPrestigeHistory: [], // [{date, prestige}] para la gráfica comparativa en Promotoras
+    rivalNewsLog: [], // [{date, promo, msg}] noticias de las promotoras rivales — feed separado del tuyo
   };
 }
 
@@ -532,6 +533,7 @@ function seedFighters(){
     STATE.statsHistory = imported.statsHistory || {};
     STATE.milestonesReached = imported.milestonesReached || [];
     STATE.newsLog = imported.newsLog || [];
+    STATE.rivalNewsLog = imported.rivalNewsLog || [];
     // saneo: asegurar que todo peleador tiene los campos nuevos (ufcFights, imageUrl)
     STATE.fighters.forEach(f=>{
       // CRÍTICO: generar id si falta (peleadores importados sin id rompen toda la app)
@@ -637,9 +639,21 @@ function seedRivalPromotions(){
     };
   });
 }
+// Noticia cruzada de una promotora rival — feed SEPARADO del tuyo (STATE.rivalNewsLog), para
+// que el mundo rival se sienta vivo sin mezclarse con las noticias de tu propia liga.
+function pushRivalNews(promo, msg, date){
+  if(!STATE.rivalNewsLog) STATE.rivalNewsLog=[];
+  STATE.rivalNewsLog.unshift({date, promo:promo.short||promo.name, msg});
+  if(STATE.rivalNewsLog.length>60) STATE.rivalNewsLog.length=60;
+}
+// Mínimo de peleadores por división que una promotora rival mantiene en plantilla — el
+// extremo bajo del rango original con el que se sembró (randi(4,7) en seedRivalPromotions).
+const RIVAL_MIN_ROSTER_PER_DIV = 4;
 // Simula un evento interno de una promotora rival: 2-4 combates entre peleadores propios
 // de la misma división, reutilizando el motor real (simulateFight). Actualiza récords,
-// campeones propios y prestigio — no toca nada del roster del jugador.
+// campeones propios y prestigio — no toca nada del roster del jugador. También aplica
+// desgaste/retiro por edad a quien pelea (igual que a tu propio roster) y repone con
+// debutantes, para que la plantilla rival tenga el mismo ciclo de vida que la tuya.
 function simulateRivalEvent(promo, date){
   const byDiv = {};
   promo.fighters.forEach(f=>{ (byDiv[f.division]=byDiv[f.division]||[]).push(f); });
@@ -648,6 +662,7 @@ function simulateRivalEvent(promo, date){
   const numFights = randi(2,4);
   const usedIds = new Set();
   const fights = [];
+  const retiredIds = new Set();
   for(let i=0;i<numFights;i++){
     const div = pick(candidateDivs);
     const pool = byDiv[div].filter(f=>!usedIds.has(f.id));
@@ -660,11 +675,44 @@ function simulateRivalEvent(promo, date){
     const r = simulateFight(a, b, {rounds: isTitleFight?5:3});
     const winner = r.winner.id===a.id? a : b, loser = r.winner.id===a.id? b : a;
     winner.record.wins++; loser.record.losses++;
-    if(isTitleFight && title.holderId!==winner.id){ title.holderId=winner.id; title.holderName=winner.name; }
-    else if(title && !title.holderId){ title.holderId=winner.id; title.holderName=winner.name; }
+    if(isTitleFight && title.holderId!==winner.id){
+      const prevHolderName=title.holderName;
+      title.holderId=winner.id; title.holderName=winner.name;
+      pushRivalNews(promo, `${winner.name} le arrebata el título de ${divName(div)} a ${prevHolderName||'?'} en ${promo.short}.`, date);
+    }
+    else if(title && !title.holderId){
+      title.holderId=winner.id; title.holderName=winner.name;
+      pushRivalNews(promo, `${winner.name} se corona primer campeón de ${divName(div)} en ${promo.short} (título vacante).`, date);
+    }
     fights.push({aName:a.name,bName:b.name,winnerName:winner.name,method:methodLabel(r),round:r.round,divisionId:div,titleFight:!!isTitleFight});
+
+    // Desgaste + retiro por edad/longevidad — mismo criterio que applyPostFightWearAndInjury,
+    // simplificado (sin lesiones: estos peleadores no participan en tu sistema de enfermería).
+    [winner, loser].forEach(rf=>{
+      let wear = randi(1,3);
+      if(r.method!=='Decisión') wear += randi(0,2);
+      rf.longevity = clamp((rf.longevity??80)-wear, 0, 100);
+      const age = ageFromDob(rf.dob, date);
+      let retireProb=0;
+      if(age>=39) retireProb+=0.35; else if(age>=36) retireProb+=0.16; else if(age>=33) retireProb+=0.05;
+      if(rf.longevity<=15) retireProb+=0.45; else if(rf.longevity<=30) retireProb+=0.2; else if(rf.longevity<=45) retireProb+=0.08;
+      if(!retiredIds.has(rf.id) && Math.random()<clamp(retireProb,0,0.9)){
+        retiredIds.add(rf.id);
+        const heldTitle=promo.titles.find(t=>t.holderId===rf.id);
+        if(heldTitle){
+          pushRivalNews(promo, `${rf.name} se retira siendo campeón de ${divName(heldTitle.divisionId)} en ${promo.short} — el título queda vacante.`, date);
+          heldTitle.holderId=null; heldTitle.holderName=null;
+        }
+      }
+    });
   }
   if(!fights.length) return null;
+  // Retirar a quien lo haya ganado, y reponer cada división hasta el mínimo con debutantes.
+  if(retiredIds.size) promo.fighters = promo.fighters.filter(f=>!retiredIds.has(f.id));
+  DIVISIONS.forEach(d=>{
+    const count = promo.fighters.filter(f=>f.division===d.id).length;
+    for(let i=count;i<RIVAL_MIN_ROSTER_PER_DIV;i++) promo.fighters.push(makeRivalFighter(d.id));
+  });
   promo.eventSeq++;
   const ev = {id:uid('RPEV'), name:`${promo.short} ${promo.eventSeq}`, date, fights};
   promo.recentEvents.unshift(ev);
@@ -1597,7 +1645,14 @@ function updateRivalry(idA,idB,date){
   const k=rivalryKey(idA,idB);
   if(!STATE.rivalries) STATE.rivalries={};
   const [sA,sB]=[idA,idB].sort();
-  STATE.rivalries[k]={ fights:(STATE.rivalries[k]?.fights||0)+1, lastDate:date, idA:sA, idB:sB };
+  const fights=(STATE.rivalries[k]?.fights||0)+1;
+  // Expectación (0-100): crece con cada combate entre ellos, más deprisa cuanto más famosos son
+  // los dos peleadores — una rivalidad entre dos estrellas engancha más que entre dos prelims.
+  const fA=STATE.fighters.find(x=>x.id===sA), fB=STATE.fighters.find(x=>x.id===sB);
+  const fameFactor = fA&&fB ? ((fA.reputation??50)+(fB.reputation??50))/100 : 1;
+  const gain = (8+fights*2)*fameFactor;
+  const hype = Math.round(Math.min(100, (STATE.rivalries[k]?.hype||0)+gain));
+  STATE.rivalries[k]={ fights, lastDate:date, idA:sA, idB:sB, hype };
 }
 function getRivalryFights(idA,idB){
   return STATE.rivalries?.[rivalryKey(idA,idB)]?.fights || 0;
@@ -1633,6 +1688,44 @@ function generateNews(fighters){
     const f=pick(active);
     if(f) STATE.newsLog.unshift({date:STATE.meta.currentDate, msg:pick(NEWS_TEMPLATES)(f)});
   }
+  if(STATE.newsLog.length>100) STATE.newsLog.length=100;
+}
+// Noticias narrativas que SÍ reaccionan a lo que acaba de pasar en el combate (a diferencia de
+// generateNews(), que son líneas de ambientación aleatorias sin relación con resultados reales).
+// Se prioriza como en FOTN/POTN: varias cosas notables pueden coincidir en la misma pelea, pero
+// solo se publica la más relevante, para no saturar el feed.
+function generateResultNews(fight, winner, loser, result, ev, revengeRequested){
+  if(!STATE.newsLog) STATE.newsLog=[];
+  const candidates=[];
+  if(fight.titleId){
+    const newReign=(winner.titleReigns||[]).some(r=>r.titleId===fight.titleId && r.wonDate===ev.date && !!r.isInterim===!!fight.isInterim);
+    if(newReign && !result.missedWeight){
+      candidates.push({p:100, msg:`👑 ${fName(winner)} se corona ${fight.isInterim?'campeón interino':'campeón'} de ${divName(winner.division)} tras vencer a ${fName(loser)} en ${fName(ev)}.`});
+    }
+  }
+  if(revengeRequested){
+    candidates.push({p:90, msg:`📣 Tras perder ante ${fName(winner)}, ${fName(loser)} pide la revancha en ${fName(ev)}.`});
+  } else if(fight.isCallout){
+    candidates.push({p:70, msg:`📣 ${fName(winner)} responde al callout y vence a ${fName(loser)} en ${fName(ev)}.`});
+  }
+  const gap=(loser.rankScore||0)-(winner.rankScore||0);
+  if(gap>=15){
+    candidates.push({p:80, msg:`😱 Sorpresa en ${fName(ev)}: ${fName(winner)} da la campanada ante ${fName(loser)}, muy por delante en el papel.`});
+  }
+  if(result.method!=='Decisión' && result.round===1){
+    candidates.push({p:60, msg:`💥 ${fName(winner)} despacha a ${fName(loser)} en el primer asalto — entrada arrolladora en ${fName(ev)}.`});
+  }
+  const rivalryCount=getRivalryFights(fight.fighterA,fight.fighterB);
+  if(rivalryCount>=3){
+    candidates.push({p:55, msg:`⚔️ ${fName(winner)} y ${fName(loser)} ya suman ${rivalryCount} combates entre ellos — una de las rivalidades más largas de la liga.`});
+  }
+  const streak=winner.momentum||0;
+  if(streak>=5){
+    candidates.push({p:40, msg:`🔥 ${fName(winner)} encadena ${streak} victorias seguidas tras vencer a ${fName(loser)} en ${fName(ev)}.`});
+  }
+  if(!candidates.length) return;
+  candidates.sort((a,b)=>b.p-a.p);
+  STATE.newsLog.unshift({date:ev.date, msg:candidates[0].msg});
   if(STATE.newsLog.length>100) STATE.newsLog.length=100;
 }
 
@@ -2668,12 +2761,21 @@ function tplRivalries(){
       fightCounts[k].fights++;
     });
   });
-  // Sincronizar con STATE.rivalries
+  // Sincronizar con STATE.rivalries — y rellenar la expectación si viene de una partida antigua
+  // que aún no la guardaba (aproximación a partir del historial real, no un valor inventado).
   Object.entries(fightCounts).forEach(([k,v])=>{
-    STATE.rivalries[k]={...(STATE.rivalries[k]||{}), fights:v.fights};
+    const prev=STATE.rivalries[k]||{};
+    let hype=prev.hype;
+    if(hype==null){
+      let titleFights=0;
+      STATE.events.filter(e=>e.status==='completed').forEach(ev=>{
+        ev.card.filter(ft=>ft.result&&((ft.fighterA===v.idA&&ft.fighterB===v.idB)||(ft.fighterA===v.idB&&ft.fighterB===v.idA))).forEach(ft=>{ if(ft.titleId) titleFights++; });
+      });
+      hype=Math.round(Math.min(100, v.fights*10+titleFights*15));
+    }
+    STATE.rivalries[k]={...prev, fights:v.fights, hype};
   });
 
-  // Calcular importancia de cada rivalidad
   const pairsRaw=Object.entries(fightCounts).filter(([,v])=>v.fights>=2).map(([key,data])=>{
     const {idA,idB}=data;
     let titleFights=0, lastDate='';
@@ -2683,14 +2785,16 @@ function tplRivalries(){
         if(!lastDate||ev.date>lastDate) lastDate=ev.date;
       });
     });
-    const importance = data.fights*10 + titleFights*15 + (lastDate?(new Date(lastDate).getTime()/1e11):0);
-    return [key, {...data, titleFights, lastDate, importance}];
+    return [key, {...data, titleFights, lastDate, hype:STATE.rivalries[key]?.hype||0}];
   });
-  const pairs=pairsRaw.sort((a,b)=>b[1].importance-a[1].importance);
+  // Ordenado por expectación — la rivalidad que más engancha va primero, no solo la que más
+  // combates acumula (dos estrellas que se han visto 2 veces pueden generar más hype que dos
+  // prelims que se han visto 4).
+  const pairs=pairsRaw.sort((a,b)=>b[1].hype-a[1].hype);
   if(!pairs.length) return `<div class="card"><h2>⚔️ Rivalidades</h2><p class="muted">Aún no hay rivalidades. Se activan cuando dos peleadores se enfrentan 2 o más veces. Simula más eventos para crear historia.</p></div>`;
 
   return `<div class="card"><h2>⚔️ Rivalidades históricas</h2>
-    <p class="muted" style="font-size:.78rem">Rivalidad cuando se han enfrentado 2+ veces. Oficial (⚔️) con 3+.</p>
+    <p class="muted" style="font-size:.78rem">Rivalidad cuando se han enfrentado 2+ veces. Oficial (⚔️) con 3+. Ordenadas por expectación — crece con cada combate y con la fama de ambos.</p>
   </div>
   ${pairs.slice(0,20).map(([key,data])=>{
     const {idA,idB}=data;
@@ -2708,7 +2812,11 @@ function tplRivalries(){
     const winsA=fights.filter(f=>f.w?.id===idA).length;
     const winsB=fights.filter(f=>f.w?.id===idB).length;
     return `<div class="card" style="padding:12px 14px;${isOfficial?'border-left:3px solid #7b1fa2':''}">
-      <div style="font-size:.65rem;color:${isOfficial?'#ce93d8':'#888'};text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${isOfficial?'⚔️ Rivalidad oficial':'Enfrentamientos'} · ${data.fights} peleas</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:.65rem;color:${isOfficial?'#ce93d8':'#888'};text-transform:uppercase;letter-spacing:1px">${isOfficial?'⚔️ Rivalidad oficial':'Enfrentamientos'} · ${data.fights} peleas</span>
+        <span style="font-size:.68rem;color:#d4af37;font-weight:700">🔥 ${data.hype} expectación</span>
+      </div>
+      <div class="statbar" style="margin-bottom:10px"><i style="width:${data.hype}%;background:#d4af37"></i></div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
         <div style="text-align:center;flex:1">
           ${fA.imageUrl?`<img src="${fA.imageUrl}" class="clickable" data-id="${fA.id}" style="width:54px;height:54px;border-radius:50%;object-fit:cover;object-position:50% 5%;border:2px solid ${fighterColor(fA.id)};cursor:pointer">`:''}
@@ -2761,6 +2869,10 @@ function tplPromotions(){
     <div id="prestigeChart"></div>
   </div>
   ${rivals.length===0?'<div class="card"><p class="muted">No hay promotoras rivales todavía. Puedes crear una desde el Editor.</p></div>':''}
+  ${(STATE.rivalNewsLog||[]).length?`<div class="card">
+    <h3>📰 Noticias de las rivales</h3>
+    ${STATE.rivalNewsLog.slice(0,12).map(n=>`<div style="font-size:.78rem;padding:5px 0;border-bottom:1px solid #1a1a1a"><span class="muted" style="font-size:.65rem">${fmtDate(n.date)} · ${n.promo}</span><div>${n.msg}</div></div>`).join('')}
+  </div>`:''}
   ${rivals.map(rp=>`
   <div class="card">
     <div class="section-title"><h3>${rp.name}</h3><span class="muted" style="font-size:.72rem">${rp.fighters.length} peleadores · $${(rp.budget||0).toLocaleString()}</span></div>
@@ -3117,6 +3229,33 @@ function bindRoster(){
   document.getElementById('fSearch').oninput=e=>{UI.rosterSearch=e.target.value; renderTab();};
 }
 
+// Cambio de categoría de peso desde el perfil (antes solo existía en el Editor, sin ningún
+// efecto secundario). Si el peleador es campeón (indiscutido o interino) de su división
+// actual, el título queda vacante — un campeón real no se lleva el cinturón a otro peso.
+function changeFighterDivision(fid, newDivId){
+  const f = STATE.fighters.find(x=>x.id===fid); if(!f || newDivId===f.division) return;
+  const oldDivId = f.division;
+  STATE.titles.forEach(t=>{
+    if(t.divisionId!==oldDivId) return;
+    if(t.holderId===f.id){
+      const r=(f.titleReigns||[]).find(rr=>rr.titleId===t.id&&!rr.isInterim&&!rr.lostDate);
+      if(r) r.lostDate=STATE.meta.currentDate;
+      t.holderId=null;
+      logEvent(`🏆 ${fName(t)} queda vacante: ${fName(f)} cambia a ${divName(newDivId)}.`);
+    }
+    if(t.interimHolderId===f.id){
+      const r=(f.titleReigns||[]).find(rr=>rr.titleId===t.id&&rr.isInterim&&!rr.lostDate);
+      if(r) r.lostDate=STATE.meta.currentDate;
+      t.interimHolderId=null;
+    }
+  });
+  f.manualRankDivision = null; // el override de ranking de categoría no tiene sentido en la nueva
+  f.division = newDivId;
+  f.lastDivisionChangeDate = STATE.meta.currentDate;
+  logEvent(`⚖️ ${fName(f)} cambia de categoría: ${divName(oldDivId)} → ${divName(newDivId)}.`);
+}
+const DIVISION_CHANGE_COOLDOWN_DAYS = 90;
+
 function openFighterModal(fid, context){
   // context: optional array of fighter ids for swipe navigation
   if(!context) context = UI._modalContext || STATE.fighters.filter(f=>f.status!=='retired').sort((a,b)=>b.rankScore-a.rankScore).map(f=>f.id);
@@ -3217,6 +3356,13 @@ function openFighterModal(fid, context){
       ${rankBadges? `<div style="margin:6px 0;display:flex;flex-wrap:wrap;gap:4px">${rankBadges}</div>` : ''}
       ${rankInfo}
       <div class="badge-row">${fighterStatusPill(f)}<span class="pill">${divName(f.division)}</span><span class="pill">${f.country}</span></div>
+      ${(f.status==='active'||f.status==='injured')?`<details style="margin:4px 0">
+        <summary style="cursor:pointer;font-size:.72rem;color:#888">⚖️ Cambiar de categoría</summary>
+        <div class="row" style="margin-top:6px">
+          <select id="changeDivSel">${DIVISIONS.filter(dv=>dv.id!==f.division).map(dv=>`<option value="${dv.id}">${divName(dv.id)}</option>`).join('')}</select>
+          <button class="btn small" id="changeDivBtn">Cambiar</button>
+        </div>
+      </details>`:''}
       <p class="muted">Edad: ${age} años · Nacido: ${fmtDate(f.dob)} · Debut: ${fmtDate(f.debut)}</p>
       <p>Récord total: <b>${f.record.wins}-${f.record.losses}-${f.record.draws}</b> (NC ${f.record.nc})
         · KO ${f.record.koWins} · SUB ${f.record.subWins} · DEC ${f.record.decWins}</p>
@@ -3376,6 +3522,23 @@ function openFighterModal(fid, context){
     STATE.titles.forEach(t=>{ if(t.interimHolderId===f.id){ t.interimHolderId=null; } if(t.holderId===f.id){ t.holderId=null; const r=(f.titleReigns||[]).find(rr=>!rr.lostDate); if(r)r.lostDate=STATE.meta.currentDate; logEvent(`🏆 ${fName(t)} queda vacante: ${fName(f)} cortado del roster.`); } });
     logEvent(`✂️ ${fName(f)} cortado del roster — ahora es agente libre.`);
     saveLocal(); closeModal(); render(); toast(`${fName(f)} cortado ✂️`);
+  };
+  const changeDivBtn=document.getElementById('changeDivBtn');
+  if(changeDivBtn) changeDivBtn.onclick=()=>{
+    const newDiv=document.getElementById('changeDivSel').value;
+    if(!newDiv||newDiv===f.division) return;
+    if(f.lastDivisionChangeDate){
+      const daysSinceChange=Math.round((new Date(STATE.meta.currentDate)-new Date(f.lastDivisionChangeDate))/86400000);
+      if(daysSinceChange<DIVISION_CHANGE_COOLDOWN_DAYS) return toast(`❌ Debe esperar ${DIVISION_CHANGE_COOLDOWN_DAYS-daysSinceChange} días más para volver a cambiar de categoría`);
+    }
+    const holdsTitle=STATE.titles.some(t=>t.divisionId===f.division&&(t.holderId===f.id||t.interimHolderId===f.id));
+    const msg = holdsTitle
+      ? `${fName(f)} es campeón de ${divName(f.division)}. Cambiar a ${divName(newDiv)} dejará el título vacante. ¿Continuar?`
+      : `¿Cambiar a ${fName(f)} de ${divName(f.division)} a ${divName(newDiv)}?`;
+    if(!confirm(msg)) return;
+    changeFighterDivision(f.id, newDiv);
+    saveLocal(); toast(`⚖️ ${fName(f)} ahora compite en ${divName(newDiv)}`);
+    openFighterModal(f.id, context);
   };
   const signBtn=document.getElementById('signFighter');
   if(signBtn) signBtn.onclick=()=>{
@@ -5424,6 +5587,7 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   // Si el combate nació de un callout, el perdedor tiene una probabilidad de pedir la
   // revancha (nuevo callout con los roles invertidos) — mucho más alta tras una decisión
   // reñida/polémica que tras un finish contundente, y nula si queda lesionado o se retira.
+  let revengeRequested=false;
   if(fight.isCallout && loser.status==='active'){
     const revengeProb = result.method!=='Decisión' ? 0.1 : (result.decType==='Unánime' ? 0.3 : 0.6);
     if(Math.random()<revengeProb){
@@ -5432,9 +5596,11 @@ function applyFightResultToState(fight, fA, fB, result, ev){
       if(!alreadyInvolved){
         STATE.callouts.push({id:uid('CO'), callerId:loser.id, targetId:winner.id, divisionId:loser.division, eventSeqIssued:STATE.meta.eventSeq});
         logEvent(`📣 ${fName(loser)} pide la revancha tras perder vs ${fName(winner)}.`);
+        revengeRequested=true;
       }
     }
   }
+  generateResultNews(fight, winner, loser, result, ev, revengeRequested);
   // Registrar knockdowns en el récord narrativo
   if(result.knockdownsA>0) logEvent(`⚡ ${fName(winner)} tumbó a ${fName(loser)} ${result.knockdownsA}x en este combate.`);
   if(result.knockdownsB>0) logEvent(`⚡ ${fName(loser)} tumbó a ${fName(winner)} ${result.knockdownsB}x pero no ganó el combate.`);
@@ -6387,22 +6553,56 @@ function openEventPoster(ev){
   document.getElementById('modalBg').onclick=e=>{if(e.target.id==='modalBg')closeModal();};
 }
 
+// Informe anual de la liga: cifras agregadas de negocio y de combate para un año concreto,
+// reutilizando el mismo ev._finance que ya calcula finishEvent() — no inventa datos nuevos.
+function computeYearReport(year){
+  const yearEvents = STATE.events.filter(e=>e.status==='completed' && parseInt((e.date||'').slice(0,4))===year);
+  const yearFights = yearEvents.flatMap(e=>e.card.filter(ft=>ft.result));
+  const finishes = yearFights.filter(ft=>ft.result.method!=='Decisión').length;
+  const acc = yearEvents.reduce((a,e)=>{
+    a.revenue+=e._finance?.revenue||0; a.purses+=e._finance?.purses||0;
+    a.net+=e._finance?.net||0; a.buys+=e._finance?.buys||0;
+    return a;
+  },{revenue:0,purses:0,net:0,buys:0});
+  return {
+    events: yearEvents.length, fights: yearFights.length,
+    finishRate: yearFights.length? Math.round(finishes/yearFights.length*100):0,
+    ...acc,
+  };
+}
+function tplYearReportLine(rep){
+  if(!rep.events) return '';
+  return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:6px;font-size:.7rem">
+    <div><span class="muted">Eventos</span> <b>${rep.events}</b></div>
+    <div><span class="muted">Combates</span> <b>${rep.fights}</b></div>
+    <div><span class="muted">% Finalización</span> <b>${rep.finishRate}%</b></div>
+    <div><span class="muted">📺 Compras PPV</span> <b style="color:#82b1ff">${Math.round(rep.buys).toLocaleString()}</b></div>
+    <div><span class="muted">Ingresos</span> <b style="color:#69f0ae">$${Math.round(rep.revenue).toLocaleString()}</b></div>
+    <div><span class="muted">Beneficio neto</span> <b style="color:${rep.net>=0?'#69f0ae':'#ef5350'}">${rep.net>=0?'+':''}$${Math.round(rep.net).toLocaleString()}</b></div>
+  </div>`;
+}
 function tplStats(){
   const divFilter = UI.statsDiv || 'ALL';
   const all = divFilter==='ALL'? STATE.fighters : STATE.fighters.filter(f=>f.division===divFilter);
-  // ── Historial de premios anuales ──────────────────────────────────────────
+  // ── Historial de premios anuales + informe anual de la liga ────────────────
   const awardsHistory=(STATE.awards||[]).slice().reverse().slice(0,5);
   const currentYear = parseInt((STATE.meta.currentDate||'2026').slice(0,4));
   const hasCurrentYearFights = STATE.events.filter(e=>e.status==='completed'&&parseInt((e.date||'').slice(0,4))===currentYear).flatMap(e=>e.card.filter(ft=>ft.result)).length >= 2;
   const currentYearAwarded = (STATE.awards||[]).some(a=>a.year===currentYear);
+  const currentYearReport = hasCurrentYearFights && !currentYearAwarded ? computeYearReport(currentYear) : null;
   const awardsSection=awardsHistory.length?`<div class="card"><h3>🏆 Premios anuales — histórico</h3>
     ${!currentYearAwarded&&hasCurrentYearFights?`<button class="btn green full" id="giveAwardsBtn" style="margin-bottom:10px">🏆 Entregar premios de ${currentYear}</button>`:''}
+    ${currentYearReport?`<div style="border:1px solid rgba(212,175,55,.25);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:.7rem;font-weight:700;color:#d4af37">📈 Informe anual de la liga — ${currentYear} (en curso)</div>
+      ${tplYearReportLine(currentYearReport)}
+    </div>`:''}
     ${awardsHistory.map(a=>{
       const fy=STATE.fighters.find(x=>x.id===a.fighterOfYear);
       const focA=STATE.fighters.find(x=>x.id===a.fightOfYear?.fA), focB=STATE.fighters.find(x=>x.id===a.fightOfYear?.fB);
       const kA=STATE.fighters.find(x=>x.id===a.koOfYear?.fA), kB=STATE.fighters.find(x=>x.id===a.koOfYear?.fB);
       const sA=STATE.fighters.find(x=>x.id===a.subOfYear?.fA), sB=STATE.fighters.find(x=>x.id===a.subOfYear?.fB);
       const pAw=STATE.fighters.find(x=>x.id===a.performanceOfYear?.fA);
+      const yearReport=computeYearReport(a.year);
       return '<div style="border-top:1px solid #1e1e1e;padding:10px 0;font-size:.78rem">'+
         '<div style="font-size:.7rem;font-weight:700;color:#d4af37;margin-bottom:6px">📅 '+a.year+'</div>'+
         (fy?'<div>🏆 <b>Peleador del Año:</b> <span class="clickable" data-id="'+fy.id+'">'+fy.name+'</span></div>':'')+
@@ -6410,10 +6610,16 @@ function tplStats(){
         (kA&&kB?'<div>💥 <b>KO del Año:</b> '+kA.name+' def. '+kB.name+' R'+a.koOfYear.round+'</div>':'')+
         (sA&&sB?'<div>🤼 <b>Sub del Año:</b> '+sA.name+' def. '+sB.name+' R'+a.subOfYear.round+'</div>':'')+
         (pAw?'<div>⭐ <b>Actuación del Año:</b> '+pAw.name+'</div>':'')+
+        '<div style="font-size:.65rem;color:#888;margin-top:6px">📈 Informe anual de la liga</div>'+
+        tplYearReportLine(yearReport)+
         '</div>';
     }).join('')}
   </div>`:`<div class="card"><h3>🏆 Premios anuales</h3>
     ${hasCurrentYearFights?`<button class="btn green full" id="giveAwardsBtn" style="margin-bottom:10px">🏆 Entregar premios de ${currentYear}</button>`:''}
+    ${currentYearReport?`<div style="border:1px solid rgba(212,175,55,.25);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:.7rem;font-weight:700;color:#d4af37">📈 Informe anual de la liga — ${currentYear} (en curso)</div>
+      ${tplYearReportLine(currentYearReport)}
+    </div>`:''}
     <p class="muted">${hasCurrentYearFights?'Hay peleas disponibles para los premios de '+currentYear+'.':'Los premios se entregan automáticamente al pasar de año, o manualmente con el botón de arriba cuando haya al menos 2 peleas simuladas.'}</p>
   </div>`;
 
@@ -7377,9 +7583,13 @@ function tplRivalriesEditor(){
   return `
   <h3>⚔️ Rivalidades</h3>
   <p class="muted" style="font-size:.78rem">Ajusta el número de enfrentamientos o la fecha del último combate entre dos peleadores, elimínala, o crea una rivalidad manual (útil para construir historia previa a la simulación). Se muestra como "Rivalidad" con 2+ combates, "oficial" con 3+.</p>
-  ${valid.length===0?'<p class="muted">No hay rivalidades registradas.</p>':valid.map(({key,riv,fA,fB})=>`
+  ${valid.length===0?'<p class="muted">No hay rivalidades registradas.</p>':`
+  <details>
+    <summary style="cursor:pointer;font-size:.82rem;color:#888;padding:4px 0">Ver rivalidades registradas (${valid.length}) ▾</summary>
+    <div style="margin-top:6px">
+    ${valid.map(({key,riv,fA,fB})=>`
     <div class="fightcard-item" data-rivkey="${key}">
-      <b>${fName(fA)}</b> vs <b>${fName(fB)}</b>
+      <b>${fName(fA)}</b> vs <b>${fName(fB)}</b> <span class="muted" style="font-size:.68rem">· 🔥 ${riv.hype||0} expectación</span>
       <div class="grid2" style="margin-top:6px">
         <div><label>Combates</label><input type="number" min="0" class="rivFightsFld" data-key="${key}" value="${riv.fights||0}"></div>
         <div><label>Última fecha</label><input type="date" class="rivDateFld" data-key="${key}" value="${riv.lastDate||''}"></div>
@@ -7389,6 +7599,8 @@ function tplRivalriesEditor(){
         <button class="btn small danger rivalryDeleteBtn" data-key="${key}">✕ Eliminar</button>
       </div>
     </div>`).join('')}
+    </div>
+  </details>`}
   <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
     <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">➕ Crear rivalidad manual</div>
     <select id="newRivalryA"><option value="">Peleador A</option>${activeOpts.map(x=>`<option value="${x.id}">${fName(x)}</option>`).join('')}</select>
@@ -8006,7 +8218,7 @@ function bindEditor(){
     const date=document.getElementById('newRivalryDate').value||STATE.meta.currentDate;
     if(!STATE.rivalries) STATE.rivalries={};
     const [sA,sB]=[aId,bId].sort();
-    STATE.rivalries[rivalryKey(aId,bId)]={fights, lastDate:date, idA:sA, idB:sB};
+    STATE.rivalries[rivalryKey(aId,bId)]={fights, lastDate:date, idA:sA, idB:sB, hype:Math.min(100, fights*10)};
     saveLocal(); render(); toast('Rivalidad creada ✅');
   };
   const cleanOrphanRivalriesBtn=document.getElementById('cleanOrphanRivalriesBtn');
