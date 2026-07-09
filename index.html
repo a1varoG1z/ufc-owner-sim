@@ -1211,9 +1211,16 @@ function _simRound(fA, fB, sA, sB, hA, hB, styleA, styleB, round, totalRounds){
   const scB=(stsB.headL*1.15 + stsB.bodyL*1.0 + stsB.legsL*0.85) + stsB.tdL*14 + stsB.ctrl/22 + stsB.kd*28 + lateB*0.6;
   const winner=scA>scB?'A':scB>scA?'B':Math.random()<0.5?'A':'B';
 
-  stsA.fightTime=timeElapsed; stsB.fightTime=timeElapsed;
+  // El bucle suma la duración de la última acción DESPUÉS de comprobar timeElapsed<300, así que
+  // esa última acción puede empujar timeElapsed más allá de los 300s reales del asalto (ej. 327s
+  // → se mostraría "5:27", imposible en un asalto de 5 minutos). Se acota el tiempo de pelea real
+  // a un máximo de 300s (un asalto no puede durar más), y el de un finish concreto a 299s: un
+  // finish real nunca puede caer en o después del final del asalto — si el tiempo se agota antes,
+  // el combate pasa a decisión, no a un finish.
+  stsA.fightTime=Math.min(timeElapsed,300); stsB.fightTime=stsA.fightTime;
+  const displayTimeInRound = Math.min(timeElapsed, 299);
   return {actions, statsA:stsA, statsB:stsB, dmgToA, dmgToB,
-          winner, scA:Math.round(scA), scB:Math.round(scB), pos, finish, timeInRound:timeElapsed};
+          winner, scA:Math.round(scA), scB:Math.round(scB), pos, finish, timeInRound:displayTimeInRound};
 }
 
 // ── TARJETAS DE LOS 3 JUECES (sistema real de 10 puntos de la UFC) ──────────
@@ -2104,21 +2111,40 @@ function p4pTop15(){
 function checkAndUpdateRecords(fA, fB, result, eventDate){
   const R = STATE.records = STATE.records || {};
   const w = result.winner, l = result.loser;
-  const timeSecs = result.round*300 - (5*60 - (parseInt(result.time)||0)); // approx seconds
-  const actualSecs = (result.round-1)*300 + (parseInt((result.time||'0:00').split(':')[0])||0)*60 + (parseInt((result.time||'0:00').split(':')[1])||0);
+  // Defensa extra: un asalto dura como mucho 300s (5:00 es la parada médica entre asaltos, un
+  // valor real y válido; por encima de eso es imposible) — se acota por si alguna otra vía
+  // llegase a construir un result.time fuera de rango, no solo la que ya se corrigió en _simRound.
+  const [rm,rs] = (result.time||'0:00').split(':').map(x=>parseInt(x)||0);
+  const withinRound = Math.min(rm*60+rs, 300);
+  const clampedTime = `${Math.floor(withinRound/60)}:${String(withinRound%60).padStart(2,'0')}`;
+  const actualSecs = (result.round-1)*300 + withinRound;
 
   if(result.method==='KO/TKO'){
     if(!R.fastestKO || actualSecs < R.fastestKO.secs)
-      R.fastestKO = {fighterId:w.id, secs:actualSecs, round:result.round, time:result.time, opponentId:l.id, date:eventDate};
+      R.fastestKO = {fighterId:w.id, secs:actualSecs, round:result.round, time:clampedTime, opponentId:l.id, date:eventDate};
     if(!R.latestKO || actualSecs > R.latestKO.secs)
-      R.latestKO = {fighterId:w.id, secs:actualSecs, round:result.round, time:result.time, opponentId:l.id, date:eventDate};
+      R.latestKO = {fighterId:w.id, secs:actualSecs, round:result.round, time:clampedTime, opponentId:l.id, date:eventDate};
   }
   if(result.method==='Sumisión'){
     if(!R.fastestSub || actualSecs < R.fastestSub.secs)
-      R.fastestSub = {fighterId:w.id, secs:actualSecs, round:result.round, time:result.time, opponentId:l.id, date:eventDate};
+      R.fastestSub = {fighterId:w.id, secs:actualSecs, round:result.round, time:clampedTime, opponentId:l.id, date:eventDate};
     if(!R.latestSub || actualSecs > R.latestSub.secs)
-      R.latestSub = {fighterId:w.id, secs:actualSecs, round:result.round, time:result.time, opponentId:l.id, date:eventDate};
+      R.latestSub = {fighterId:w.id, secs:actualSecs, round:result.round, time:clampedTime, opponentId:l.id, date:eventDate};
   }
+}
+// Repara récords ya guardados con un tiempo dentro de asalto imposible (>5:00) — se quedaron así
+// por el bug de _simRound ya corregido (el último intercambio de golpes podía alargar el asalto
+// más de la cuenta antes de que el bucle se diera cuenta de que el tiempo ya se había agotado).
+function sanitizeRecords(){
+  const R = STATE.records; if(!R) return;
+  ['fastestKO','fastestSub','latestKO','latestSub'].forEach(key=>{
+    const rec = R[key]; if(!rec || !rec.time) return;
+    const [m,s] = rec.time.split(':').map(x=>parseInt(x)||0);
+    if(m*60+s>300){
+      rec.time = '5:00';
+      rec.secs = (rec.round-1)*300 + 300;
+    }
+  });
 }
 function fmtSecs(s){ if(s==null) return '—'; const m=Math.floor(s/60),sec=s%60; return `R${Math.floor(s/300)+1} ${m%5}:${String(sec).padStart(2,'0')}`; }
 
@@ -6600,6 +6626,7 @@ function tplYearReportLine(rep){
   </div>`;
 }
 function tplStats(){
+  sanitizeRecords();
   const divFilter = UI.statsDiv || 'ALL';
   const all = divFilter==='ALL'? STATE.fighters : STATE.fighters.filter(f=>f.division===divFilter);
   // ── Historial de premios anuales + informe anual de la liga ────────────────
