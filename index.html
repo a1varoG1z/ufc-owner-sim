@@ -7356,7 +7356,7 @@ function tplEditor(){
   </div>
 
 
-  <div cl<div class="card">
+  <div class="card">
     <h3>🏆 Editor de premios anuales</h3>
     <p class="muted" style="font-size:.78rem">Edita, añade o elimina premios anuales. Los cambios se reflejan en la sección Estadísticas y en los perfiles de peleadores.</p>
     <div id="awardsEditorList">
@@ -7393,67 +7393,6 @@ function tplEditor(){
       <div class="row" style="gap:4px">
         <input type="number" id="newAwardYear" placeholder="Año (ej: 2026)" min="2020" max="2099" style="flex:1">
         <button class="btn primary small" id="addAwardYearBtn">Añadir</button>
-      </div>
-    </div>
-  </div>
-    <div class="card">
-    <h3>⚔️ Editor de rivalidades</h3>
-    <p class="muted" style="font-size:.78rem">Añade o elimina rivalidades manualmente. Las rivalidades automáticas se generan cuando dos peleadores se enfrentan 2+ veces.</p>
-    ${Object.keys(STATE.rivalries||{}).length===0?'<p class="muted">No hay rivalidades registradas.</p>':
-      Object.entries(STATE.rivalries||{}).slice().sort((a,b)=>(b[1].fights||0)-(a[1].fights||0)).map(([key,r])=>{
-        const [idA,idB]=key.split('_vs_');
-        const fA=STATE.fighters.find(x=>x.id===idA), fB=STATE.fighters.find(x=>x.id===idB);
-        if(!fA||!fB) return '';
-        return `<div class="fightcard-item" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <div style="flex:1;min-width:0">
-            <b>${fName(fA)}</b> vs <b>${fName(fB)}</b>
-            <span class="muted" style="font-size:.72rem"> · ${r.fights||0} peleas · Última: ${r.lastDate||'?'}</span>
-          </div>
-          <button class="btn small danger rivalDelBtn" data-key="${key}" style="font-size:.72rem;flex-shrink:0">✕</button>
-        </div>`;
-      }).join('')}
-    <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
-      <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">Añadir rivalidad</div>
-      <div class="row" style="gap:4px;flex-wrap:wrap">
-        <select id="rivalFighterA" style="flex:1;min-width:120px"><option value="">Peleador A</option>${STATE.fighters.filter(f=>f.status!=='retired').sort((a,b)=>a.name.localeCompare(b.name)).map(f=>`<option value="${f.id}">${fName(f)}</option>`).join('')}</select>
-        <select id="rivalFighterB" style="flex:1;min-width:120px"><option value="">Peleador B</option>${STATE.fighters.filter(f=>f.status!=='retired').sort((a,b)=>a.name.localeCompare(b.name)).map(f=>`<option value="${f.id}">${fName(f)}</option>`).join('')}</select>
-        <input type="number" id="rivalFights" placeholder="Peleas" min="1" max="10" value="2" style="flex:0 0 70px">
-        <button class="btn primary small" id="rivalAddBtn" style="flex:0 0 auto">Añadir</button>
-      </div>
-    </div>
-  </div>
-    <p class="muted" style="font-size:.78rem">Edita o elimina cláusulas de revancha, contendiente y unificación.</p>
-    ${Object.keys(STATE.rematches||{}).length===0?'<p class="muted">No hay cláusulas activas.</p>':
-      Object.entries(STATE.rematches||{}).map(([fid,r])=>{
-        const f=STATE.fighters.find(x=>x.id===fid), opp=STATE.fighters.find(x=>x.id===r.opponentId);
-        const t=STATE.titles.find(x=>x.id===r.titleId);
-        const typeLabel={rematch:'🔄 Revancha',titleShot:'🥊 Pelea por título',unification:'🏆 Unificación',contender:'🎯 Contendiente'}[r.type]||r.type;
-        return `<div class="fightcard-item" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <div style="flex:1;min-width:0">
-            <div><b>${f?.name||fid}</b>${opp?` vs ${fName(opp)}`:''}</div>
-            <div class="muted" style="font-size:.72rem">${typeLabel}${t?' · '+t.name:''} · ${r.date||''}</div>
-          </div>
-          <div style="display:flex;gap:4px;flex-shrink:0">
-            <select class="clauseTypeEdit" data-id="${fid}" style="font-size:.72rem;padding:2px 4px">
-              ${['rematch','titleShot','unification','contender'].map(tp=>`<option value="${tp}" ${r.type===tp?'selected':''}>${{rematch:'Revancha',titleShot:'T. Título',unification:'Unific.',contender:'Contend.'}[tp]}</option>`).join('')}
-            </select>
-            <button class="btn small danger clauseDelBtn" data-id="${fid}" style="font-size:.72rem;padding:3px 7px">✕</button>
-          </div>
-        </div>`;
-      }).join('')}
-    <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px">
-      <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">Añadir cláusula</div>
-      <div class="row" style="gap:4px;flex-wrap:wrap">
-        <select id="clauseFighter" style="flex:1;min-width:100px"><option value="">Peleador</option>${STATE.fighters.filter(f=>f.status!=='retired').sort((a,b)=>a.name.localeCompare(b.name)).map(f=>`<option value="${f.id}">${fName(f)}</option>`).join('')}</select>
-        <select id="clauseOpp" style="flex:1;min-width:100px"><option value="">Rival (opt.)</option>${STATE.fighters.filter(f=>f.status!=='retired').sort((a,b)=>a.name.localeCompare(b.name)).map(f=>`<option value="${f.id}">${fName(f)}</option>`).join('')}</select>
-        <select id="clauseType" style="flex:0 0 110px">
-          <option value="rematch">🔄 Revancha</option>
-          <option value="titleShot">🥊 T. Título</option>
-          <option value="unification">🏆 Unificación</option>
-          <option value="contender">🎯 Contendiente</option>
-        </select>
-        <select id="clauseTitle" style="flex:1;min-width:100px"><option value="">Título (opt.)</option>${STATE.titles.filter(t=>!t.vacated).map(t=>`<option value="${t.id}">${fName(t)}</option>`).join('')}</select>
-        <button class="btn primary small" id="clauseAddBtn" style="flex:0 0 auto">Añadir</button>
       </div>
     </div>
   </div>
@@ -8008,42 +7947,6 @@ function bindEditor(){
     }catch(e){ toast('JSON inválido: '+e.message, 4000); }
   };
   document.getElementById('refreshJson').onclick=()=> render();
-
-  // Rivalidades
-  document.querySelectorAll('.rivalDelBtn').forEach(btn=>{
-    btn.onclick=e=>{ e.stopPropagation(); delete STATE.rivalries[btn.dataset.key]; saveLocal(); render(); toast('Rivalidad eliminada'); };
-  });
-  const rivalAddBtn=document.getElementById('rivalAddBtn');
-  if(rivalAddBtn) rivalAddBtn.onclick=()=>{
-    const idA=document.getElementById('rivalFighterA').value;
-    const idB=document.getElementById('rivalFighterB').value;
-    const fights=parseInt(document.getElementById('rivalFights').value)||2;
-    if(!idA||!idB||idA===idB) return toast('Selecciona dos peleadores distintos');
-    const key=[idA,idB].sort().join('_vs_');
-    if(!STATE.rivalries) STATE.rivalries={};
-    STATE.rivalries[key]={fights,lastDate:STATE.meta.currentDate,...(STATE.rivalries[key]||{})};
-    STATE.rivalries[key].fights=fights;
-    saveLocal(); render(); toast('Rivalidad añadida ✅');
-  };
-
-  // Cláusulas
-  document.querySelectorAll('.clauseDelBtn').forEach(btn=>{
-    btn.onclick=e=>{ e.stopPropagation(); delete STATE.rematches[btn.dataset.id]; saveLocal(); render(); toast('Cláusula eliminada'); };
-  });
-  document.querySelectorAll('.clauseTypeEdit').forEach(sel=>{
-    sel.onchange=()=>{ if(STATE.rematches[sel.dataset.id]) STATE.rematches[sel.dataset.id].type=sel.value; saveLocal(); toast('Tipo actualizado'); };
-  });
-  const clauseAddBtn=document.getElementById('clauseAddBtn');
-  if(clauseAddBtn) clauseAddBtn.onclick=()=>{
-    const fid=document.getElementById('clauseFighter').value;
-    const oppId=document.getElementById('clauseOpp').value||null;
-    const type=document.getElementById('clauseType').value;
-    const titleId=document.getElementById('clauseTitle').value||null;
-    if(!fid) return toast('Selecciona un peleador');
-    if(!STATE.rematches) STATE.rematches={};
-    STATE.rematches[fid]={opponentId:oppId,type,titleId,date:STATE.meta.currentDate};
-    saveLocal(); render(); toast('Cláusula añadida ✅');
-  };
 
   // ── Awards editor bindings ──────────────────────────────────────────────
   // Save award changes
