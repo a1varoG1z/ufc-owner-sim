@@ -1751,10 +1751,22 @@ function generateCallouts(eventDate){
   logEvent(`📣 ${fName(caller)} reta a ${fName(target)}: "¡Te quiero a ti a continuación!"`);
   if(STATE.callouts.length>20) STATE.callouts.shift();
 }
-// Elimina callouts ya viejos (4+ eventos sin bookearse) sin penalización — simplemente se olvidan
+// Elimina callouts ya viejos (4+ eventos sin bookearse) sin penalización — simplemente se olvidan.
+// Mientras alguno de los dos no esté disponible (lesión, sanción, cooldown entre peleas) el
+// reloj se pausa: no sería justo que un callout caduque solo porque el jugador estaba esperando
+// a que el peleador se recuperase. Si alguno se retira o ya no existe, se descarta directamente
+// (ese callout ya no se puede cumplir nunca).
 function expireStaleCallouts(){
   if(!STATE.callouts) return;
-  STATE.callouts = STATE.callouts.filter(c=>STATE.meta.eventSeq-(c.eventSeqIssued||0)<4);
+  STATE.callouts = STATE.callouts.filter(c=>{
+    const caller=STATE.fighters.find(f=>f.id===c.callerId), target=STATE.fighters.find(f=>f.id===c.targetId);
+    if(!caller||!target||caller.status==='retired'||target.status==='retired') return false;
+    if(!fighterAvailable(caller)||!fighterAvailable(target)){
+      c.eventSeqIssued = STATE.meta.eventSeq; // pausa la cuenta atrás mientras espera
+      return true;
+    }
+    return STATE.meta.eventSeq-(c.eventSeqIssued||0)<4;
+  });
 }
 // Si acabas de emparejar exactamente el callout pendiente, se marca como resuelto
 function resolveCalloutIfMatched(fAId, fBId){
@@ -2897,7 +2909,7 @@ function tplPromotions(){
         const isChamp=rp.titles.some(t=>t.holderId===rf.id);
         const cost=rivalSigningCost(rf,isChamp);
         return `<tr>
-          <td class="clickable" data-rivalfighter="${rf.id}" data-rivalpromo="${rp.id}" style="cursor:pointer">${rf.name}${isChamp?' 🏆':''}</td>
+          <td class="clickable" data-rivalfighter="${rf.id}" data-rivalpromo="${rp.id}" style="cursor:pointer">${rf.imageUrl?`<img src="${rf.imageUrl}" style="width:20px;height:20px;border-radius:50%;object-fit:cover;object-position:50% 10%;vertical-align:middle;margin-right:4px" onerror="this.style.display='none'">`:''}${rf.name}${isChamp?' 🏆':''}</td>
           <td style="font-size:.7rem">${divName(rf.division)}</td>
           <td style="font-size:.72rem">${rf.record?.wins||0}-${rf.record?.losses||0}</td>
           <td style="font-size:.72rem">${generalScore(rf)}</td>
@@ -2993,7 +3005,7 @@ function restoreFighterFromRival(rf, isChamp){
     division: rf.division, stats:{...rf.stats}, longevity: rf.longevity||80, status:'active',
     injury:{active:false,untilDate:null,note:''},
     record:{wins:rf.record?.wins||0,losses:rf.record?.losses||0,draws:0,nc:0,koWins:0,subWins:0,decWins:0,koLosses:0,subLosses:0,decLosses:0,ufcFights:0,ufcWins:0,ufcLosses:0,ufcKoWins:0,ufcSubWins:0,ufcDecWins:0,ufcKoLosses:0,ufcSubLosses:0,ufcDecLosses:0},
-    imageUrl:null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
+    imageUrl:rf.imageUrl||null, bonuses:{fightOfNight:0,performanceOfNight:0}, titleReigns:[], fightHistory:[], lastEventSeq:null, hof:false, rankScore:0,
     fightStyle: rf.fightStyle||'technical', chinDamage: rf.chinDamage||0, momentum:0, reputation: isChamp?70:50,
     contract: makeContract(generalScore(rf), isChamp?70:50),
   };
@@ -7513,6 +7525,32 @@ function tplRivalPromotionsEditor(){
     <select id="pullFighterSel"><option value="">Selecciona peleador</option></select>
     <button class="btn small full" id="pullFromRivalBtn" style="margin-top:6px">⬅️ Ficharlo para tu roster</button>`:''}
   </div>
+  ${rivals.length?`
+  <div style="margin-top:14px;padding:10px;background:var(--bg3);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:6px;font-size:.82rem">✏️ Editar peleador de una rival</div>
+    <p class="muted" style="font-size:.72rem;margin:0 0 6px">Cambia nombre, foto y atributos de un peleador SIN sacarlo de su promotora — útil para dar identidad a los rivales generados automáticamente.</p>
+    <select id="editRivalPromoSel"><option value="">Selecciona rival</option>${rivals.map(rp=>`<option value="${rp.id}" ${UI.editorRivalPromoId===rp.id?'selected':''}>${rp.name}</option>`).join('')}</select>
+    ${(()=>{
+      const rp=rivals.find(x=>x.id===UI.editorRivalPromoId);
+      if(!rp) return '';
+      return `<select id="editRivalFighterSel"><option value="">Selecciona peleador</option>${rp.fighters.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option value="${x.id}" ${UI.editorRivalFighterId===x.id?'selected':''}>${x.name} (${divName(x.division)})</option>`).join('')}</select>`;
+    })()}
+    ${(()=>{
+      const rp=rivals.find(x=>x.id===UI.editorRivalPromoId);
+      const rf=rp?.fighters.find(x=>x.id===UI.editorRivalFighterId);
+      if(!rf) return '';
+      return `<div style="margin-top:8px">
+        <label>Nombre</label><input id="fld_rivalfighter_name" value="${rf.name}">
+        <label>URL de imagen</label><input id="fld_rivalfighter_image" value="${rf.imageUrl||''}" placeholder="https://...">
+        ${rf.imageUrl?`<img src="${rf.imageUrl}" class="fighterImg" style="max-width:100px;margin-top:6px" onerror="this.style.display='none'">`:''}
+        <h4 style="margin-top:8px">Atributos</h4>
+        <div class="grid2">
+          ${STAT_KEYS.map(([k,label])=>`<div><label>${label}</label><input type="number" min="1" max="99" id="fld_rivalfighter_stat_${k}" value="${rf.stats[k]}"></div>`).join('')}
+        </div>
+        <button class="btn primary full rivalFighterSaveBtn" data-promo="${rp.id}" data-fighter="${rf.id}" style="margin-top:8px">💾 Guardar peleador</button>
+      </div>`;
+    })()}
+  </div>`:''}
   `;
 }
 
@@ -8099,6 +8137,31 @@ function bindEditor(){
     STATE.fighters.push(restoreFighterFromRival(rf, isChamp));
     saveLocal(); render(); toast(`${rf.name} fichado a tu roster ✅`);
   };
+  // Editar peleador de una rival in situ (nombre, foto, atributos) sin moverlo de promotora
+  const editRivalPromoSel = document.getElementById('editRivalPromoSel');
+  if(editRivalPromoSel) editRivalPromoSel.onchange=()=>{
+    UI.editorRivalPromoId = editRivalPromoSel.value; UI.editorRivalFighterId = null; render();
+  };
+  const editRivalFighterSel = document.getElementById('editRivalFighterSel');
+  if(editRivalFighterSel) editRivalFighterSel.onchange=()=>{
+    UI.editorRivalFighterId = editRivalFighterSel.value; render();
+  };
+  document.querySelectorAll('.rivalFighterSaveBtn').forEach(btn=>{
+    btn.onclick=()=>{
+      const rp=STATE.rivalPromotions.find(x=>x.id===btn.dataset.promo);
+      const rf=rp?.fighters.find(x=>x.id===btn.dataset.fighter);
+      if(!rp||!rf) return;
+      rf.name = document.getElementById('fld_rivalfighter_name').value.trim()||rf.name;
+      rf.imageUrl = document.getElementById('fld_rivalfighter_image').value.trim()||null;
+      STAT_KEYS.forEach(([k])=>{
+        const v=clamp(parseInt(document.getElementById('fld_rivalfighter_stat_'+k).value)||rf.stats[k],1,99);
+        rf.stats[k]=v;
+      });
+      // Si es campeón de su promotora, refleja el nuevo nombre en el título también.
+      rp.titles.forEach(t=>{ if(t.holderId===rf.id) t.holderName=rf.name; });
+      saveLocal(); render(); toast('Peleador rival actualizado ✅');
+    };
+  });
 
   document.querySelectorAll('.rivalrySaveBtn').forEach(btn=>{
     btn.onclick=()=>{
