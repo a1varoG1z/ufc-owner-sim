@@ -1735,7 +1735,9 @@ function generateResultNews(fight, winner, loser, result, ev, revengeRequested){
 function generateCallouts(eventDate){
   if(!STATE.callouts) STATE.callouts=[];
   if(Math.random()>0.5) return; // no siempre hay callout nuevo
-  const active = STATE.fighters.filter(f=>f.status==='active');
+  // Ambos deben poder reservarse YA (mismo criterio que el selector de matchmaking,
+  // fighterAvailable) — si no, el jugador vería el callout pero no podría bookearlo.
+  const active = STATE.fighters.filter(fighterAvailable);
   const caller = pick(active); if(!caller) return;
   const already = STATE.callouts.some(c=>c.callerId===caller.id||c.targetId===caller.id);
   if(already) return;
@@ -2560,9 +2562,11 @@ function tplDashboard(){
     ${STATE.callouts.map(c=>{
       const caller=STATE.fighters.find(x=>x.id===c.callerId), target=STATE.fighters.find(x=>x.id===c.targetId);
       if(!caller||!target) return '';
+      const ready = fighterAvailable(caller) && fighterAvailable(target);
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;gap:6px">
         <span style="font-size:.78rem"><b>${fName(caller)}</b> reta a <b>${fName(target)}</b></span>
-        <button class="btn small primary bookCalloutBtn" data-caller="${caller.id}" data-target="${target.id}" style="font-size:.68rem;white-space:nowrap">📅 Bookear</button>
+        ${ready?`<button class="btn small primary bookCalloutBtn" data-caller="${caller.id}" data-target="${target.id}" style="font-size:.68rem;white-space:nowrap">📅 Bookear</button>`
+               :`<span class="muted" style="font-size:.65rem;white-space:nowrap">⏳ no disponible aún</span>`}
       </div>`;
     }).filter(Boolean).join('')}
   </div>`:''}
@@ -3770,9 +3774,11 @@ function tplEventBuilder(ev){
     ${pendingCallouts.map(c=>{
       const caller=STATE.fighters.find(x=>x.id===c.callerId), target=STATE.fighters.find(x=>x.id===c.targetId);
       if(!caller||!target) return '';
+      const ready = fighterAvailable(caller) && fighterAvailable(target);
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;gap:6px">
         <span style="font-size:.75rem"><b>${fName(caller)}</b> reta a <b>${fName(target)}</b></span>
-        <button class="btn small fillCalloutBtn" data-ev="${ev.id}" data-caller="${caller.id}" data-target="${target.id}" style="font-size:.68rem;white-space:nowrap">🔥 Usar</button>
+        ${ready?`<button class="btn small fillCalloutBtn" data-ev="${ev.id}" data-caller="${caller.id}" data-target="${target.id}" style="font-size:.68rem;white-space:nowrap">🔥 Usar</button>`
+               :`<span class="muted" style="font-size:.65rem;white-space:nowrap">⏳ no disponible aún</span>`}
       </div>`;
     }).filter(Boolean).join('')}
   </div>`:'';
