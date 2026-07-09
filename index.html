@@ -1335,7 +1335,10 @@ function simulateFight(fA, fB, opts={}){
   result.fightStatsA=fsA; result.fightStatsB=fsB;
   const close=result.method==='Decisión'?Math.abs(roundsA-roundsB)<=1:result.round>=Math.ceil(rounds*0.6);
   result.fightOfNight=close&&Math.random()<0.22;
-  result.performance=!result.fightOfNight&&(fsA.kd+fsB.kd)>0&&Math.random()<0.4;
+  // Señal "candidata" a Actuación de la Noche — la selección FINAL (máx. 2 por evento, como en
+  // la UFC real) se decide en finishEvent() comparando todas las peleas de la cartelera; este
+  // flag solo alimenta esa comparación y sirve de vista previa antes de que acabe el evento.
+  result.performance=!result.fightOfNight&&(result.method==='KO/TKO'||result.method==='Sumisión')&&Math.random()<0.35;
   return result;
 }
 
@@ -3558,7 +3561,7 @@ function tplEvents(){
               </div>
               <div style="text-align:right;white-space:nowrap;font-size:.72rem">
                 ${r?`<span style="color:${methodColor};font-weight:700">${methodLabel(r)}</span> <span style="color:#555">R${r.round}</span>`:'<span style="color:#555">-</span>'}
-                ${r?.isFOTN?' 🌟':''}${r?.performance?' ⭐':''}
+                ${r?.isFOTN?' 🌟':''}${r?.isPOTN?' ⭐':''}
                 ${missedW?` <span style="color:#ff8f00;font-size:.65rem">⚖️</span>`:''}
               </div>
             </div>`;
@@ -4025,7 +4028,7 @@ function showFightResultModal(fight, ev){
         ${r.missedWeight?`<div style="font-size:.75rem;color:#ffb300;margin-top:4px">⚖️ ${fName(STATE.fighters.find(x=>x.id===r.missedWeight)||{})} no dio el peso${fight.titleId?' — el título no cambia de manos por reglamento':''}</div>`:''}
       </div>
       ${r.fightOfNight||r.isFOTN?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">🌟 Pelea de la Noche</div>':''}
-      ${r.performance?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">⭐ Actuación de la Noche</div>':''}
+      ${r.isPOTN?'<div style="color:#d4af37;font-size:.8rem;margin-bottom:6px">⭐ Actuación de la Noche</div>':''}
       ${hasStats?`<div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:8px;padding:8px 10px;font-size:.72rem">
         <div style="display:grid;grid-template-columns:1fr 80px 1fr;gap:3px;align-items:center">
           <div style="color:#e53935;text-align:right;font-weight:700">${w.name.split(' ').pop()}</div><div></div><div style="color:#888;font-size:.65rem">${l.name.split(' ').pop()}</div>
@@ -4894,7 +4897,7 @@ function openLiveFightViewer(ev){
               ${missedId?`<div style="font-size:.78rem;color:#ffb300;margin-top:4px">⚖️ ${fName(STATE.fighters.find(x=>x.id===missedId)||{})} no dio el peso${fight.titleId?' — el título no cambia de manos por reglamento':''}</div>`:''}
             </div>
             ${champChange?`<div style="background:rgba(227,179,65,.15);border:1px solid var(--gold);border-radius:8px;padding:10px;margin-bottom:12px;color:var(--gold);font-weight:700">🏆 ¡NUEVO CAMPEÓN! ${fName(w)}</div>`:''}
-            ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Posible Actuación de la Noche</div>`:''}
+            ${result.performance?`<div style="color:var(--gold);font-size:.85rem;margin-bottom:8px">⭐ Actuación de la Noche</div>`:''}
             ${(()=>{
               const jc=result.judgeScores;
               if(!jc) return '';
@@ -5075,7 +5078,7 @@ function revertEvent(ev){
       loser.record.ufcDecLosses=Math.max(0,(loser.record.ufcDecLosses||0)-1);
     }
     // Revertir bonos (FOTN, POTN)
-    if(r.performance) winner.bonuses.performanceOfNight=Math.max(0,(winner.bonuses.performanceOfNight||0)-1);
+    if(r.isPOTN) winner.bonuses.performanceOfNight=Math.max(0,(winner.bonuses.performanceOfNight||0)-1);
     if(r.isFOTN){
       winner.bonuses.fightOfNight=Math.max(0,(winner.bonuses.fightOfNight||0)-1);
       loser.bonuses.fightOfNight=Math.max(0,(loser.bonuses.fightOfNight||0)-1);
@@ -5148,7 +5151,9 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   // Reputación
   updateReputation(winner, fight.titleId?12: result.method!=='Decisión'?6:3);
   updateReputation(loser, fight.titleId?-8:-3);
-  if(result.performance) winner.bonuses.performanceOfNight++;
+  // (El bono de Actuación de la Noche NO se concede aquí — se decide a nivel de evento en
+  // finishEvent(), igual que Pelea de la Noche, para no premiar más de las 2 actuaciones que
+  // reparte una cartelera real.)
   // Sponsors: pueden llegar o irse según reputación y resultado
   maybeUpdateSponsor(winner, true, result.method);
   maybeUpdateSponsor(loser, false, result.method);
@@ -5403,7 +5408,7 @@ function giveAwardsForYear(awardYear){
     }
   }
   // Actuación del Año
-  const potyFight = yearFights.filter(ft=>ft.result.performance).sort(()=>Math.random()-0.5)[0];
+  const potyFight = yearFights.filter(ft=>ft.result.isPOTN).sort(()=>Math.random()-0.5)[0];
   if(potyFight){
     const pw=STATE.fighters.find(x=>x.id===potyFight.result.winnerId);
     if(pw){
@@ -5582,6 +5587,23 @@ function finishEvent(ev){
     if(fotnW)fotnW.bonuses.fightOfNight++;
     if(fotnL)fotnL.bonuses.fightOfNight++;
     logEvent(`🌟 FOTN: ${fotnW?fotnW.name:'?'} vs ${fotnL?fotnL.name:'?'}`);
+
+    // POTN: hasta 2 actuaciones individuales por evento (la cifra real de la UFC — 1 Pelea de la
+    // Noche + 2 Actuaciones de la Noche por cartelera), en peleas distintas de la FOTN.
+    const potnScores = completedFights.filter(ft=>ft!==fotnFight).map(ft=>{
+      const r=ft.result;
+      let score=Math.random()*25;
+      if(r.method==='KO/TKO')score+=35; else if(r.method==='Sumisión')score+=30; else score+=8;
+      if(r.round===1)score+=12; else if(r.round===2)score+=6;
+      if(r.performance)score+=10;
+      return {ft,score};
+    });
+    potnScores.sort((a,b)=>b.score-a.score);
+    potnScores.slice(0,2).forEach(({ft})=>{
+      ft.result.isPOTN=true;
+      const pw=STATE.fighters.find(x=>x.id===ft.result.winnerId);
+      if(pw){ pw.bonuses.performanceOfNight++; logEvent(`⭐ POTN: ${pw.name}`); }
+    });
   }
   // ── PREMIOS ANUALES — se entregan cuando se supera el 31 de diciembre ────────
   const evYear = parseInt((ev.date||'2025').slice(0,4));
@@ -5679,7 +5701,7 @@ function finishEvent(ev){
       let bonusMoney=0;
       if(r.winnerId===pf.id && r.method!=='Decisión') bonusMoney+=(pf.contract.finishBonus||0);
       if(r.isFOTN) bonusMoney+=FOTN_BONUS_USD;
-      if(r.performance && r.winnerId===pf.id) bonusMoney+=POTN_BONUS_USD;
+      if(r.isPOTN && r.winnerId===pf.id) bonusMoney+=POTN_BONUS_USD;
       const purse=(pf.contract.salary||0)+bonusMoney;
       totalPurses+=purse;
       totalBonusPayouts+=bonusMoney;
@@ -5793,7 +5815,7 @@ function showEventSummary(ev, completedFights){
     const t=ft.titleId?STATE.titles.find(x=>x.id===ft.titleId):null;
     const isMain = idx===0;
     const isFOTN = ft.result.isFOTN;
-    const isPOTN = ft.result.performance;
+    const isPOTN = ft.result.isPOTN;
     const isMissWeight = ft.result.missedWeight;
     const streak = (w?.momentum||0);
     const methodColor = ft.result.method==='KO/TKO'?'#ef5350':ft.result.method==='Sumisión'?'#ce93d8':'#90caf9';
