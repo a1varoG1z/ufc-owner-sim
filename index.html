@@ -2037,8 +2037,13 @@ function fighterTrend(f){
 function divisionRankTrend(fid, divId){
   const snaps = STATE.rankingHistory||[];
   if(snaps.length<2) return '';
-  const cur = snaps[snaps.length-1].divisions?.[divId]||[];
-  const prev = snaps[snaps.length-2].divisions?.[divId]||[];
+  // Usa el ranking COMPLETO guardado (divisionsFull), no solo el top 15 — si no, alguien que
+  // entra al top 15 desde fuera desplaza a otros hacia abajo sin que su propia subida se pueda
+  // calcular (no había snapshot suyo dentro del top 15), y parecía que "bajan varios sin que
+  // suba ninguno". Con el ranking completo, su puesto anterior real (aunque fuera del top 15)
+  // también queda registrado.
+  const cur = snaps[snaps.length-1].divisionsFull?.[divId]||[];
+  const prev = snaps[snaps.length-2].divisionsFull?.[divId]||[];
   const curEntry = cur.find(x=>x.id===fid);
   const prevEntry = prev.find(x=>x.id===fid);
   if(!curEntry || !prevEntry) return '';
@@ -2109,7 +2114,10 @@ function refreshRankings(){
   });
 }
 
-function divisionTop15(divId){
+// Ranking COMPLETO de una división (sin recortar a 15) — usado tanto por divisionTop15() como
+// por divisionFullRank(), y por el snapshot de saveRankingSnapshot() para que las flechas de
+// tendencia funcionen aunque alguien entre o salga del top 15 entre un evento y el siguiente.
+function divisionFullList(divId){
   const divTitle  = STATE.titles.find(t=>t.divisionId===divId && !t.isInterim)||{};
   const champId   = divTitle.holderId;
   const interimId = divTitle.interimHolderId;
@@ -2124,8 +2132,9 @@ function divisionTop15(divId){
       if(am!=null) return -1;
       if(bm!=null) return 1;
       return b.rankScore-a.rankScore;
-    }).slice(0,15);
+    });
 }
+function divisionTop15(divId){ return divisionFullList(divId).slice(0,15); }
 function p4pTop15(){
   // En P4P, todos los campeones activos tienen prioridad por delante del resto, luego sort por score
   return STATE.fighters.filter(f=>f.status==='active' || f.status==='injured')
@@ -6474,8 +6483,14 @@ function bindComparator(){
 function saveRankingSnapshot(eventId, eventDate){
   if(!STATE.rankingHistory) STATE.rankingHistory=[];
   const snapshot={eventId, date:eventDate,
-    p4p:p4pTop15().map((f,i)=>({id:f.id,name:f.name,pos:i+1})), divisions:{}};
-  DIVISIONS.forEach(d=>{snapshot.divisions[d.id]=divisionTop15(d.id).map((f,i)=>({id:f.id,name:f.name,pos:i+1}));});
+    p4p:p4pTop15().map((f,i)=>({id:f.id,name:f.name,pos:i+1})), divisions:{}, divisionsFull:{}};
+  DIVISIONS.forEach(d=>{
+    snapshot.divisions[d.id]=divisionTop15(d.id).map((f,i)=>({id:f.id,name:f.name,pos:i+1}));
+    // Ranking COMPLETO (no solo top 15) — para que la flecha de tendencia sepa el puesto real de
+    // alguien que entra o sale del top 15 entre un evento y el siguiente, y no deje "bajadas sin
+    // ninguna subida" cuando en realidad alguien de fuera del top 15 escaló hasta él.
+    snapshot.divisionsFull[d.id]=divisionFullList(d.id).map((f,i)=>({id:f.id,name:f.name,pos:i+1}));
+  });
   STATE.rankingHistory.push(snapshot);
   if(STATE.rankingHistory.length>50) STATE.rankingHistory.shift();
 }
@@ -6574,21 +6589,7 @@ function getDivRank(f){
 // peleador de la división (por ejemplo, para juzgar si un sustituto de última hora es un
 // reemplazo razonable frente al rival original en términos de ranking, no solo de nivel bruto).
 function divisionFullRank(f){
-  const divTitle=STATE.titles.find(t=>t.divisionId===f.division && !t.isInterim)||{};
-  const champId=divTitle.holderId, interimId=divTitle.interimHolderId;
-  const list=STATE.fighters.filter(x=>x.division===f.division && x.status!=='retired')
-    .sort((a,b)=>{
-      if(a.id===champId) return -1;
-      if(b.id===champId) return 1;
-      if(a.id===interimId) return -1;
-      if(b.id===interimId) return 1;
-      const am=a.manualRankDivision, bm=b.manualRankDivision;
-      if(am!=null && bm!=null) return am-bm;
-      if(am!=null) return -1;
-      if(bm!=null) return 1;
-      return b.rankScore-a.rankScore;
-    });
-  const idx=list.findIndex(x=>x.id===f.id);
+  const idx=divisionFullList(f.division).findIndex(x=>x.id===f.id);
   return idx>=0?idx+1:null;
 }
 /* ====================== REPUTACIÓN ====================== */
