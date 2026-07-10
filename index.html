@@ -2133,41 +2133,31 @@ function divisionFullList(divId){
   const champId   = divTitle.holderId;
   const interimId = divTitle.interimHolderId;
   const pool = STATE.fighters.filter(f=>f.division===divId && f.status!=='retired');
-  const poolIds = new Set(pool.map(f=>f.id));
-  // Cara a cara más reciente entre cada pareja de esta división, calculado en una sola pasada
-  // (no dentro del comparador, que se llamaría O(n log n) veces) — como en un panel de ranking
-  // real de la UFC, el último resultado directo entre dos peleadores manda sobre la puntuación
-  // acumulada PARA ESE PAR: si acabas de ganarle a alguien, vas por delante de él, aunque lleve
-  // más puntuación acumulada. Al ser una regla solo entre ESE par (no un salto de puntuación
-  // global), no te puede colar por delante de nadie a quien no hayas vencido — como mucho llegas
-  // a alcanzar/igualar el puesto de quien acabas de vencer, nunca superarlo de más.
-  const lastH2H = new Map(); // rivalryKey(idA,idB) -> {winnerId, date}
-  STATE.events.forEach(ev=>{
-    if(ev.status!=='completed') return;
-    ev.card.forEach(ft=>{
-      const r=ft.result; if(!r) return;
-      if(!poolIds.has(r.winnerId)||!poolIds.has(r.loserId)) return;
-      const key=rivalryKey(r.winnerId,r.loserId);
-      const existing=lastH2H.get(key);
-      if(!existing || ev.date>existing.date) lastH2H.set(key,{winnerId:r.winnerId,date:ev.date});
-    });
-  });
-  // Puntuación "efectiva" para el orden: si en tu enfrentamiento más reciente contra alguien
-  // le ganaste y esa persona puntúa más que tú, tu puntuación efectiva sube justo por encima
-  // de la suya (te acercas o le superas), pero nunca más allá — así no puedes colarte por
-  // delante de nadie a quien no hayas vencido. Usamos una puntuación numérica (no un simple
-  // criterio de desempate en el comparador) para que el orden final sea transitivo: un
-  // comparador que solo desempata PARES concretos puede quedar contradicho por Array.sort al
-  // comparar con terceros, ya que no garantiza que compare directamente cada pareja.
+  // Puntuación "efectiva" para el orden, mirando el combate MÁS RECIENTE de cada peleador
+  // (misma fuente que qualityAdjustment: recentResolvedFights, con la puntuación de ambos
+  // CONGELADA en el momento de ese combate):
+  //  - Si en ese combate ganaste a alguien que entonces puntuaba MÁS que tú, tu puntuación
+  //    efectiva sube justo por encima de la puntuación ACTUAL de esa persona: te acercas o le
+  //    superas en el ranking, pero nunca más allá de su puesto.
+  //  - Si ganaste a alguien que entonces puntuaba IGUAL o MENOS que tú (victoria "esperada"),
+  //    tu puntuación efectiva para compararte con TERCEROS se congela en la que tenías justo
+  //    ANTES de ese combate: sigues por delante de a quien acabas de ganar (ya lo estabas),
+  //    pero el subidón de esa victoria no te sirve para colarte por delante de nadie a quien
+  //    no hayas vencido — igual que en la UFC real, machacar a alguien varios puestos por
+  //    debajo no te dispara de golpe frente a gente con la que no te has cruzado.
   const effScore = new Map();
   pool.forEach(f=>{
-    let best = f.rankScore;
-    pool.forEach(o=>{
-      if(o.id===f.id) return;
-      const h2h = lastH2H.get(rivalryKey(f.id,o.id));
-      if(h2h && h2h.winnerId===f.id && o.rankScore>best) best = o.rankScore+0.001;
-    });
-    effScore.set(f.id, best);
+    let eff = f.rankScore;
+    const last = recentResolvedFights(f,1)[0];
+    // Ojo: NO exigimos que el rival siga en el pool actual (podría haberse retirado justo tras
+    // el combate) — el tope/impulso depende de su puntuación EN AQUEL MOMENTO, no de si sigue
+    // activo ahora. Exigirlo dejaba el tope sin aplicar en cuanto el rival se retiraba después.
+    if(last && last.won){
+      const beatSomeoneBetter = (last.oppScoreAtFight ?? 0) > (last.myScoreAtFight ?? 0);
+      if(beatSomeoneBetter) eff = Math.max(eff, last.opp.rankScore+0.001);
+      else eff = Math.min(eff, Math.max(last.myScoreAtFight ?? eff, last.opp.rankScore+0.001));
+    }
+    effScore.set(f.id, eff);
   });
   return pool.sort((a,b)=>{
       if(a.id===champId)   return -1; // #1 siempre
@@ -5483,6 +5473,15 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   // pelear pudiera moverse igualmente, solo porque un rival de hace tiempo mejoró o empeoró después).
   result.winnerScoreAtFight = computeBaseScore(winner);
   result.loserScoreAtFight = computeBaseScore(loser);
+  // fight.result es un objeto LITERAL APARTE (construido por el llamador antes de esta llamada,
+  // con solo winnerId/loserId/method/...), no el mismo "result" de simulateFight que acabamos de
+  // congelar arriba — sin esto, recentResolvedFights() (y por tanto qualityAdjustment y el
+  // ranking por cara a cara) nunca veía la puntuación congelada y siempre caía de vuelta a la
+  // puntuación EN VIVO de cada rival, aunque el comentario de arriba dijera lo contrario.
+  if(fight.result){
+    fight.result.winnerScoreAtFight = result.winnerScoreAtFight;
+    fight.result.loserScoreAtFight = result.loserScoreAtFight;
+  }
   // Actualizar stats de carrera
   if(result.fightStatsA) updateCareerStats(fA, result.fightStatsA, fA.id===winner.id);
   if(result.fightStatsB) updateCareerStats(fB, result.fightStatsB, fB.id===winner.id);
