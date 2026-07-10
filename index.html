@@ -2065,9 +2065,12 @@ function divisionRankTrend(fid, divId){
 }
 
 // Últimos N combates resueltos de un peleador (más reciente primero), con su rival, si ganó, y
-// la puntuación base que tenían AMBOS congelada en el momento de ese combate (result.winner/
-// loserScoreAtFight, guardada por applyFightResultToState) — puede faltar en combates simulados
-// antes de que existiera ese campo; en ese caso el llamador cae de vuelta a la puntuación actual.
+// la puntuación (base y completa) que tenían AMBOS congelada en el momento de ese combate
+// (result.winner/loserScoreAtFight y winner/loserFullScoreAtFight, guardadas por
+// applyFightResultToState) — puede faltar en combates de partidas guardadas antes de que
+// existieran esos campos; en ese caso los llamadores (qualityAdjustment, effectiveRankScore)
+// IGNORAN esa pelea en vez de recurrir a la puntuación EN VIVO del rival, que reintroduciría la
+// deriva retroactiva que estos campos existen para evitar.
 function recentResolvedFights(f, n){
   const history = [...(f.fightHistory||[])].reverse();
   const out=[];
@@ -2097,14 +2100,21 @@ function recentResolvedFights(f, n){
 // si no, el ranking de un peleador inactivo podía moverse solo porque un rival de hace tiempo
 // mejoró o empeoró después, sin que él hiciera nada.
 const FORM_WEIGHTS = [1.0, 0.7, 0.5, 0.35, 0.25];
-function qualityAdjustment(f, baseMap){
-  const myBaseNow = baseMap.get(f.id) ?? 0;
+function qualityAdjustment(f){
   const fights = recentResolvedFights(f, FORM_WEIGHTS.length);
   let adj = 0;
   fights.forEach((res, idx)=>{
+    // Si a este combate le falta la puntuación CONGELADA de cualquiera de los dos (combates
+    // grabados antes de que existiera este campo, en partidas ya empezadas), NO recurrimos a la
+    // puntuación EN VIVO del rival como aproximación — eso reintroduce EXACTAMENTE el fallo que
+    // motivó congelar la puntuación: un peleador que no ha vuelto a pelear puede ver moverse su
+    // ranking solo porque un rival de hace tiempo mejora o empeora después (p.ej. Pedro Munhoz
+    // subiendo puestos sin pelear porque Raul Rosas Jr., al que venció hace tiempo, gana ahora).
+    // Mejor ignorar esa pelea concreta (no sumar ni restar nada) que sesgar con datos actuales.
+    if(res.myScoreAtFight===undefined || res.oppScoreAtFight===undefined) return;
     const w = FORM_WEIGHTS[idx] ?? 0.15;
-    const myBase = res.myScoreAtFight ?? myBaseNow;
-    const oppBase = res.oppScoreAtFight ?? (baseMap.get(res.opp.id) ?? 0);
+    const myBase = res.myScoreAtFight;
+    const oppBase = res.oppScoreAtFight;
     const diff = oppBase - myBase; // positivo = el rival estaba mejor valorado que tú, EN AQUEL MOMENTO
     if(res.won){
       adj += w * clamp(diff, 0, 60) * 0.9; // victoria de calidad: te adelanta
@@ -2120,10 +2130,9 @@ function qualityAdjustment(f, baseMap){
 function refreshRankings(){
   // Paso 1: puntuación base (récord UFC, títulos, defensas, multi-división, inactividad)
   STATE.fighters.forEach(f=> f._baseScore = computeBaseScore(f));
-  const baseMap = new Map(STATE.fighters.map(f=>[f.id, f._baseScore]));
   // Paso 2: ajuste por calidad de rivales recientes (efecto "leapfrog" realista)
   STATE.fighters.forEach(f=>{
-    f.rankScore = f._baseScore + qualityAdjustment(f, baseMap);
+    f.rankScore = f._baseScore + qualityAdjustment(f);
   });
 }
 
