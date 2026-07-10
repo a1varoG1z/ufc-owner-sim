@@ -6209,7 +6209,12 @@ function autoWeightCutMode(){
   const r=Math.random();
   return r<0.12?'aggressive' : r<0.42?'safe' : 'normal';
 }
-function weightCutMissProb(mode){ return mode==='safe'?0.02 : mode==='aggressive'?0.16 : 0.06; }
+// Probabilidades calibradas para que la tasa combinada de fallo de peso (algún peleador de la
+// pelea falla) ronde el ~3% de los combates — el nivel "histórico normal" de la UFC real (13
+// fallos en toda la temporada 2019, con 500-600 combates/año), no la crisis puntual de 2023-24
+// (~70 fallos en año y medio, ~7-8% de los combates), que la propia UFC reconoce como un
+// problema a corregir, no un comportamiento a imitar como norma.
+function weightCutMissProb(mode){ return mode==='safe'?0.005 : mode==='aggressive'?0.04 : 0.015; }
 function weightCutBonus(fight, fighterId, missedId){
   if(!fighterId || missedId===fighterId) return 0;
   const mode = fight.fighterA===fighterId ? fight.weightCutA : fight.weightCutB;
@@ -8426,10 +8431,11 @@ function tplGuide(){
     <h3>⚖️ Corte de peso y peso fallido</h3>
     <p class="muted" style="font-size:.82rem">Cada peleador recibe automáticamente un modo de corte de peso al confirmarse el combate (no es una elección manual):</p>
     <div style="font-size:.78rem;line-height:1.7">
-      <div>• <b>Agresivo</b> (~12%): 16% de fallar el peso, pero da +3 a los atributos ese combate (más deshidratado en el pesaje, más rehidratado el día de la pelea).</div>
-      <div>• <b>Seguro</b> (~30%): 2% de fallar el peso.</div>
-      <div>• <b>Normal</b> (~58%): 6% de fallar el peso.</div>
+      <div>• <b>Agresivo</b> (~12%): 4% de fallar el peso, pero da +3 a los atributos ese combate (más deshidratado en el pesaje, más rehidratado el día de la pelea).</div>
+      <div>• <b>Seguro</b> (~30%): 0.5% de fallar el peso.</div>
+      <div>• <b>Normal</b> (~58%): 1.5% de fallar el peso.</div>
     </div>
+    <p class="muted" style="font-size:.78rem">Estas cifras están calibradas para que, combinando a los dos peleadores, algún fallo de peso ocurra en ~3% de los combates — el nivel histórico normal de la UFC real, no la crisis puntual de 2023-2024 (~7-8%) que la propia organización reconoce como un problema a corregir.</p>
     <p class="muted" style="font-size:.78rem">💡 Regla real de la UFC si quien falla el peso gana el combate: en pelea de <b>título</b>, el campeón <b>retiene</b> el cinturón sin importar el resultado; si el propio campeón (o un título vacante) falla el peso, el título queda <b>vacante</b>. Fuera de pelea de título, el combate se cuenta con normalidad pero el infractor no puede ganar cinturón alguno.</p>
   </div>
 
