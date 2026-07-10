@@ -2045,8 +2045,19 @@ function divisionRankTrend(fid, divId){
   const cur = snaps[snaps.length-1].divisionsFull?.[divId]||[];
   const prev = snaps[snaps.length-2].divisionsFull?.[divId]||[];
   const curEntry = cur.find(x=>x.id===fid);
+  if(!curEntry) return '';
   const prevEntry = prev.find(x=>x.id===fid);
-  if(!curEntry || !prevEntry) return '';
+  if(!prevEntry){
+    // Sin snapshot inmediatamente anterior en ESTA división: puede ser la primera vez que se
+    // registra a este peleador aquí (debut, fichaje de una rival, cambio de categoría) — en ese
+    // caso no hay puesto previo con el que comparar, así que no se puede calcular una flecha real.
+    // Se marca como "nuevo" en vez de dejarlo en blanco sin explicación, para que se entienda por
+    // qué otros peleadores de la lista pueden bajar sin que nadie visible haya subido: quien
+    // provocó el hueco es precisamente este fichaje/debut, no un fallo de cálculo.
+    const everAppeared = snaps.slice(0,-1).some(s=>(s.divisionsFull?.[divId]||[]).some(x=>x.id===fid));
+    if(!everAppeared) return `<span style="color:#82b1ff;font-size:.62rem;font-weight:700;white-space:nowrap" title="Primera vez registrado en el ranking de esta división">🆕</span>`;
+    return '';
+  }
   const delta = prevEntry.pos - curEntry.pos; // positivo = subió (número de puesto más bajo)
   if(delta>0) return `<span style="color:#69f0ae;font-size:.68rem;font-weight:700;white-space:nowrap" title="Subió ${delta} puesto${delta>1?'s':''} desde el evento anterior">▲${delta}</span>`;
   if(delta<0) return `<span style="color:#ef5350;font-size:.68rem;font-weight:700;white-space:nowrap" title="Bajó ${-delta} puesto${-delta>1?'s':''} desde el evento anterior">▼${-delta}</span>`;
