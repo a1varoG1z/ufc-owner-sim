@@ -2083,7 +2083,9 @@ function recentResolvedFights(f, n){
     if(!opp) continue;
     const myScoreAtFight = won? r.winnerScoreAtFight : r.loserScoreAtFight;
     const oppScoreAtFight = won? r.loserScoreAtFight : r.winnerScoreAtFight;
-    out.push({opp, won, date: foundEv? foundEv.date : null, myScoreAtFight, oppScoreAtFight});
+    const myFullScoreAtFight = won? r.winnerFullScoreAtFight : r.loserFullScoreAtFight;
+    const oppFullScoreAtFight = won? r.loserFullScoreAtFight : r.winnerFullScoreAtFight;
+    out.push({opp, won, date: foundEv? foundEv.date : null, myScoreAtFight, oppScoreAtFight, myFullScoreAtFight, oppFullScoreAtFight});
   }
   return out;
 }
@@ -2125,6 +2127,25 @@ function refreshRankings(){
   });
 }
 
+// Puntuación EFECTIVA de un peleador para ordenar/comparar con terceros — aplica el tope de "cara
+// a cara" (ver divisionFullList) a partir de su combate más reciente. Se usa tanto para ordenar
+// divisiones como para CONGELAR el valor de referencia de cada combate (ver winner/loserFullScoreAtFight
+// en applyFightResultToState): si en su lugar se congelara el f.rankScore crudo (sin tope), cada
+// combate de una racha usaría como referencia un número que ya se había ido de madre por el
+// qualityAdjustment de combates anteriores, sin pasar nunca por el propio tope — y el tope acababa
+// fallando más adelante en la racha aunque cada paso individual lo aplicara bien.
+function effectiveRankScore(f){
+  let eff = f.rankScore;
+  const last = recentResolvedFights(f,1)[0];
+  if(last && last.won){
+    const oppScoreThen = last.oppFullScoreAtFight ?? -Infinity;
+    const beatSomeoneBetter = oppScoreThen > (last.myFullScoreAtFight ?? 0);
+    if(beatSomeoneBetter) eff = oppScoreThen+0.001;
+    else eff = Math.min(eff, Math.max(last.myFullScoreAtFight ?? eff, oppScoreThen+0.001));
+  }
+  return eff;
+}
+
 // Ranking COMPLETO de una división (sin recortar a 15) — usado tanto por divisionTop15() como
 // por divisionFullRank(), y por el snapshot de saveRankingSnapshot() para que las flechas de
 // tendencia funcionen aunque alguien entre o salga del top 15 entre un evento y el siguiente.
@@ -2132,8 +2153,22 @@ function divisionFullList(divId){
   const divTitle  = STATE.titles.find(t=>t.divisionId===divId && !t.isInterim)||{};
   const champId   = divTitle.holderId;
   const interimId = divTitle.interimHolderId;
-  return STATE.fighters.filter(f=>f.division===divId && f.status!=='retired')
-    .sort((a,b)=>{
+  const pool = STATE.fighters.filter(f=>f.division===divId && f.status!=='retired');
+  // Puntuación "efectiva" para el orden, mirando el combate MÁS RECIENTE de cada peleador
+  // (misma fuente que qualityAdjustment: recentResolvedFights, con la puntuación de ambos
+  // CONGELADA en el momento de ese combate):
+  //  - Si en ese combate ganaste a alguien que entonces puntuaba MÁS que tú, tu puntuación
+  //    efectiva sube justo por encima de la puntuación ACTUAL de esa persona: te acercas o le
+  //    superas en el ranking, pero nunca más allá de su puesto.
+  //  - Si ganaste a alguien que entonces puntuaba IGUAL o MENOS que tú (victoria "esperada"),
+  //    tu puntuación efectiva para compararte con TERCEROS se congela en la que tenías justo
+  //    ANTES de ese combate: sigues por delante de a quien acabas de ganar (ya lo estabas),
+  //    pero el subidón de esa victoria no te sirve para colarte por delante de nadie a quien
+  //    no hayas vencido — igual que en la UFC real, machacar a alguien varios puestos por
+  //    debajo no te dispara de golpe frente a gente con la que no te has cruzado.
+  const effScore = new Map();
+  pool.forEach(f=> effScore.set(f.id, effectiveRankScore(f)));
+  return pool.sort((a,b)=>{
       if(a.id===champId)   return -1; // #1 siempre
       if(b.id===champId)   return  1;
       if(a.id===interimId) return -1; // #2 siempre
@@ -2142,7 +2177,7 @@ function divisionFullList(divId){
       if(am!=null && bm!=null) return am-bm;
       if(am!=null) return -1;
       if(bm!=null) return 1;
-      return b.rankScore-a.rankScore;
+      return effScore.get(b.id)-effScore.get(a.id);
     });
 }
 function divisionTop15(divId){ return divisionFullList(divId).slice(0,15); }
@@ -5447,6 +5482,27 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   // pelear pudiera moverse igualmente, solo porque un rival de hace tiempo mejoró o empeoró después).
   result.winnerScoreAtFight = computeBaseScore(winner);
   result.loserScoreAtFight = computeBaseScore(loser);
+  // Puntuación EFECTIVA (ver effectiveRankScore — base + qualityAdjustment, YA con el tope de cara
+  // a cara aplicado) congelada en el momento del combate — distinta de winner/loserScoreAtFight de
+  // arriba, que es solo la puntuación BASE (a propósito, para que qualityAdjustment no se calcule
+  // en términos de sí misma). IMPORTANTE: usamos effectiveRankScore(), NO el rankScore crudo — si
+  // se congelara el rankScore sin tope, cada combate de una racha de victorias tomaría como
+  // referencia un número que ya se había disparado por el qualityAdjustment de combates
+  // anteriores sin haber pasado nunca por el propio tope, y el tope acababa fallando más adelante
+  // en la racha aunque cada paso individual lo aplicase bien.
+  result.winnerFullScoreAtFight = effectiveRankScore(winner);
+  result.loserFullScoreAtFight = effectiveRankScore(loser);
+  // fight.result es un objeto LITERAL APARTE (construido por el llamador antes de esta llamada,
+  // con solo winnerId/loserId/method/...), no el mismo "result" de simulateFight que acabamos de
+  // congelar arriba — sin esto, recentResolvedFights() (y por tanto qualityAdjustment y el
+  // ranking por cara a cara) nunca veía la puntuación congelada y siempre caía de vuelta a la
+  // puntuación EN VIVO de cada rival, aunque el comentario de arriba dijera lo contrario.
+  if(fight.result){
+    fight.result.winnerScoreAtFight = result.winnerScoreAtFight;
+    fight.result.loserScoreAtFight = result.loserScoreAtFight;
+    fight.result.winnerFullScoreAtFight = result.winnerFullScoreAtFight;
+    fight.result.loserFullScoreAtFight = result.loserFullScoreAtFight;
+  }
   // Actualizar stats de carrera
   if(result.fightStatsA) updateCareerStats(fA, result.fightStatsA, fA.id===winner.id);
   if(result.fightStatsB) updateCareerStats(fB, result.fightStatsB, fB.id===winner.id);
