@@ -2618,7 +2618,7 @@ function tplDashboard(){
     <div style="font-size:.65rem;color:#d4af37;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">🥇 Cinturones activos</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
     ${DIVISIONS.map(d=>{
-      const t=STATE.titles.find(x=>x.divisionId===d.id&&!x.vacated);
+      const t=STATE.titles.find(x=>x.divisionId===d.id&&!x.vacated&&x.kind!=='minor');
       const champ=t?.holderId?STATE.fighters.find(f=>f.id===t.holderId):null;
       const defenses=(champ?.titleReigns||[]).find(r=>r.titleId===t?.id&&!r.lostDate)?.defenses||0;
       const clickAction=champ?`openFighterModal('${champ.id}')`:`UI.tab='titles';render()`;
@@ -2634,7 +2634,7 @@ function tplDashboard(){
     }).join('')}
     </div>
     ${(()=>{
-      const extra=STATE.titles.filter(t=>!t.divisionId&&!t.vacated);
+      const extra=STATE.titles.filter(t=>t.kind==='minor'&&!t.vacated);
       if(!extra.length) return '';
       return `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         ${extra.map(t=>{
@@ -6965,7 +6965,10 @@ function bindHof(){
 function tplDivisions(){
   const selDiv = UI.divTreeDiv || DIVISIONS[0].id;
   const divOpts = DIVISIONS.map(d=>`<option value="${d.id}"${d.id===selDiv?' selected':''}>${divName(d.id)}</option>`).join('');
-  const title = STATE.titles.find(t=>t.divisionId===selDiv&&!t.vacated);
+  // El título principal es el único con derecho a la caja grande de arriba — un título menor
+  // (kind==='minor') puede estar asociado a esta misma división (no solo el caso "especial" sin
+  // división, tipo BMF) y en ese caso NO debe ocupar ni pisar el hueco del campeonato de verdad.
+  const title = STATE.titles.find(t=>t.divisionId===selDiv&&!t.vacated&&t.kind!=='minor');
   const champ   = title?.holderId       ? STATE.fighters.find(f=>f.id===title.holderId)       : null;
   const interim = title?.interimHolderId? STATE.fighters.find(f=>f.id===title.interimHolderId): null;
   const champId   = champ?.id;
@@ -7042,19 +7045,29 @@ function tplDivisions(){
     <!-- Top ranked -->
     <div style="margin-bottom:12px">
       <div style="font-size:.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Ranking</div>
-      ${ranked.map((f,i)=>{
-        const isC=f.id===champId, isI=f.id===interimId;
-        const rankLabel = isC?'👑':isI?'🥈':`#${i+1}`;
-        const rankColor = isC?'#d4af37':isI?'#b79bff':'#555';
-        const rowBg = isC?'rgba(212,175,55,.05)':isI?'rgba(125,95,255,.05)':'';
-        return `<div class="clickable fightcard-item" data-id="${f.id}" style="display:flex;align-items:center;gap:8px;padding:5px 0;${rowBg?'background:'+rowBg+';border-radius:6px;':''}">
-          <span style="font-size:.72rem;color:${rankColor};min-width:22px;text-align:right;font-weight:${isC||isI?'800':'400'}">${rankLabel}</span>
-          ${avatarHtml(f,28)}
-          <span style="flex:1;font-size:.8rem;font-weight:${i<3?'700':'400'}">${fName(f)}${isI?' <span style="font-size:.6rem;color:#b79bff">(Int.)</span>':''}${(()=>{const minor=STATE.titles.filter(t=>!t.divisionId&&!t.vacated&&t.holderId===f.id);return minor.length?minor.map(t=>`<span style="font-size:.65rem;color:#d4af37;margin-left:3px">${titleIcon(t)}</span>`).join(''):'';})()}</span>
-          <span style="font-size:.7rem;color:#555">${f.record.wins}-${f.record.losses}</span>
-          ${f.momentum>=3?`<span style="font-size:.65rem;color:#ff6d00">🔥${f.momentum}</span>`:''}
-        </div>`;
-      }).join('')}
+      ${(()=>{
+        // El top-15 ya trae el emoji de título menor si le toca, pero un campeón de un título
+        // menor (kind==='minor' — con división propia o sin ella, tipo BMF) puede no estar entre
+        // los 15 mejores de su categoría por rankScore — se añade igualmente, con su puesto REAL
+        // (no forzado arriba, solo visible), para que el emoji no dependa de estar además entre
+        // los más fuertes.
+        const minorHoldersInDiv = STATE.fighters.filter(f=>f.division===selDiv && f.status!=='retired' && STATE.titles.some(t=>t.kind==='minor'&&!t.vacated&&t.holderId===f.id));
+        const extraMinorHolders = minorHoldersInDiv.filter(f=>!ranked.some(x=>x.id===f.id));
+        const displayList = [...ranked.map((f,i)=>({f, rank:i+1})), ...extraMinorHolders.map(f=>({f, rank:divisionFullRank(f)}))];
+        return displayList.map(({f,rank})=>{
+          const isC=f.id===champId, isI=f.id===interimId;
+          const rankLabel = isC?'👑':isI?'🥈':`#${rank}`;
+          const rankColor = isC?'#d4af37':isI?'#b79bff':'#555';
+          const rowBg = isC?'rgba(212,175,55,.05)':isI?'rgba(125,95,255,.05)':'';
+          return `<div class="clickable fightcard-item" data-id="${f.id}" style="display:flex;align-items:center;gap:8px;padding:5px 0;${rowBg?'background:'+rowBg+';border-radius:6px;':''}">
+            <span style="font-size:.72rem;color:${rankColor};min-width:22px;text-align:right;font-weight:${isC||isI?'800':'400'}">${rankLabel}</span>
+            ${avatarHtml(f,28)}
+            <span style="flex:1;font-size:.8rem;font-weight:${rank<=3?'700':'400'}">${fName(f)}${isI?' <span style="font-size:.6rem;color:#b79bff">(Int.)</span>':''}${(()=>{const minor=STATE.titles.filter(t=>t.kind==='minor'&&!t.vacated&&t.holderId===f.id);return minor.length?minor.map(t=>`<span style="font-size:.65rem;color:#d4af37;margin-left:3px">${titleIcon(t)}</span>`).join(''):'';})()}</span>
+            <span style="font-size:.7rem;color:#555">${f.record.wins}-${f.record.losses}</span>
+            ${f.momentum>=3?`<span style="font-size:.65rem;color:#ff6d00">🔥${f.momentum}</span>`:''}
+          </div>`;
+        }).join('');
+      })()}
     </div>
 
     <!-- Árbol de victorias -->
