@@ -2132,8 +2132,44 @@ function divisionFullList(divId){
   const divTitle  = STATE.titles.find(t=>t.divisionId===divId && !t.isInterim)||{};
   const champId   = divTitle.holderId;
   const interimId = divTitle.interimHolderId;
-  return STATE.fighters.filter(f=>f.division===divId && f.status!=='retired')
-    .sort((a,b)=>{
+  const pool = STATE.fighters.filter(f=>f.division===divId && f.status!=='retired');
+  const poolIds = new Set(pool.map(f=>f.id));
+  // Cara a cara más reciente entre cada pareja de esta división, calculado en una sola pasada
+  // (no dentro del comparador, que se llamaría O(n log n) veces) — como en un panel de ranking
+  // real de la UFC, el último resultado directo entre dos peleadores manda sobre la puntuación
+  // acumulada PARA ESE PAR: si acabas de ganarle a alguien, vas por delante de él, aunque lleve
+  // más puntuación acumulada. Al ser una regla solo entre ESE par (no un salto de puntuación
+  // global), no te puede colar por delante de nadie a quien no hayas vencido — como mucho llegas
+  // a alcanzar/igualar el puesto de quien acabas de vencer, nunca superarlo de más.
+  const lastH2H = new Map(); // rivalryKey(idA,idB) -> {winnerId, date}
+  STATE.events.forEach(ev=>{
+    if(ev.status!=='completed') return;
+    ev.card.forEach(ft=>{
+      const r=ft.result; if(!r) return;
+      if(!poolIds.has(r.winnerId)||!poolIds.has(r.loserId)) return;
+      const key=rivalryKey(r.winnerId,r.loserId);
+      const existing=lastH2H.get(key);
+      if(!existing || ev.date>existing.date) lastH2H.set(key,{winnerId:r.winnerId,date:ev.date});
+    });
+  });
+  // Puntuación "efectiva" para el orden: si en tu enfrentamiento más reciente contra alguien
+  // le ganaste y esa persona puntúa más que tú, tu puntuación efectiva sube justo por encima
+  // de la suya (te acercas o le superas), pero nunca más allá — así no puedes colarte por
+  // delante de nadie a quien no hayas vencido. Usamos una puntuación numérica (no un simple
+  // criterio de desempate en el comparador) para que el orden final sea transitivo: un
+  // comparador que solo desempata PARES concretos puede quedar contradicho por Array.sort al
+  // comparar con terceros, ya que no garantiza que compare directamente cada pareja.
+  const effScore = new Map();
+  pool.forEach(f=>{
+    let best = f.rankScore;
+    pool.forEach(o=>{
+      if(o.id===f.id) return;
+      const h2h = lastH2H.get(rivalryKey(f.id,o.id));
+      if(h2h && h2h.winnerId===f.id && o.rankScore>best) best = o.rankScore+0.001;
+    });
+    effScore.set(f.id, best);
+  });
+  return pool.sort((a,b)=>{
       if(a.id===champId)   return -1; // #1 siempre
       if(b.id===champId)   return  1;
       if(a.id===interimId) return -1; // #2 siempre
@@ -2142,7 +2178,7 @@ function divisionFullList(divId){
       if(am!=null && bm!=null) return am-bm;
       if(am!=null) return -1;
       if(bm!=null) return 1;
-      return b.rankScore-a.rankScore;
+      return effScore.get(b.id)-effScore.get(a.id);
     });
 }
 function divisionTop15(divId){ return divisionFullList(divId).slice(0,15); }
