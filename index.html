@@ -2048,7 +2048,10 @@ function divisionRankTrend(fid, divId){
   return '';
 }
 
-// Últimos N combates resueltos de un peleador (más reciente primero), con su rival y si ganó
+// Últimos N combates resueltos de un peleador (más reciente primero), con su rival, si ganó, y
+// la puntuación base que tenían AMBOS congelada en el momento de ese combate (result.winner/
+// loserScoreAtFight, guardada por applyFightResultToState) — puede faltar en combates simulados
+// antes de que existiera ese campo; en ese caso el llamador cae de vuelta a la puntuación actual.
 function recentResolvedFights(f, n){
   const history = [...(f.fightHistory||[])].reverse();
   const out=[];
@@ -2057,10 +2060,14 @@ function recentResolvedFights(f, n){
     let found=null, foundEv=null;
     for(const ev of STATE.events){ const ft=ev.card.find(x=>x.id===fid); if(ft&&ft.result){found=ft;foundEv=ev;break;} }
     if(!found) continue;
-    const oppId = found.result.winnerId===f.id? found.result.loserId : found.result.winnerId;
+    const r=found.result;
+    const won = r.winnerId===f.id;
+    const oppId = won? r.loserId : r.winnerId;
     const opp = STATE.fighters.find(x=>x.id===oppId);
     if(!opp) continue;
-    out.push({opp, won: found.result.winnerId===f.id, date: foundEv? foundEv.date : null});
+    const myScoreAtFight = won? r.winnerScoreAtFight : r.loserScoreAtFight;
+    const oppScoreAtFight = won? r.loserScoreAtFight : r.winnerScoreAtFight;
+    out.push({opp, won, date: foundEv? foundEv.date : null, myScoreAtFight, oppScoreAtFight});
   }
   return out;
 }
@@ -2068,15 +2075,19 @@ function recentResolvedFights(f, n){
 // Ajuste por "calidad de rival" en combates recientes (estilo ranking real de la UFC):
 // vencer a alguien mejor valorado que tú te adelanta en la clasificación; perder contra alguien peor valorado te penaliza más.
 // Solo afecta a P4P / categoría (no al GOAT histórico). Se ponderan los últimos 5 combates, dando más peso al más reciente.
+// IMPORTANTE: usa la puntuación de cada uno CONGELADA en el momento del combate, no la actual —
+// si no, el ranking de un peleador inactivo podía moverse solo porque un rival de hace tiempo
+// mejoró o empeoró después, sin que él hiciera nada.
 const FORM_WEIGHTS = [1.0, 0.7, 0.5, 0.35, 0.25];
 function qualityAdjustment(f, baseMap){
-  const myBase = baseMap.get(f.id) ?? 0;
+  const myBaseNow = baseMap.get(f.id) ?? 0;
   const fights = recentResolvedFights(f, FORM_WEIGHTS.length);
   let adj = 0;
   fights.forEach((res, idx)=>{
     const w = FORM_WEIGHTS[idx] ?? 0.15;
-    const oppBase = baseMap.get(res.opp.id) ?? 0;
-    const diff = oppBase - myBase; // positivo = el rival estaba mejor valorado que tú
+    const myBase = res.myScoreAtFight ?? myBaseNow;
+    const oppBase = res.oppScoreAtFight ?? (baseMap.get(res.opp.id) ?? 0);
+    const diff = oppBase - myBase; // positivo = el rival estaba mejor valorado que tú, EN AQUEL MOMENTO
     if(res.won){
       adj += w * clamp(diff, 0, 60) * 0.9; // victoria de calidad: te adelanta
       if(diff<0) adj += w * 1.5; // ganar a cualquiera, aunque esté peor valorado, suma un poco
@@ -5409,6 +5420,13 @@ function applyFightResultToState(fight, fA, fB, result, ev){
   // (reputación, sponsor...) se pierden silenciosamente al descartarse el clon.
   const winner = fA.id===result.winner.id ? fA : fB;
   const loser = fA.id===result.loser.id ? fA : fB;
+  // Congelar la puntuación base de cada uno ANTES de que este combate actualice récord, racha o
+  // título — así el ajuste de "calidad de rival" del ranking (qualityAdjustment) valora para
+  // siempre el nivel que tenía el rival EN ESE MOMENTO, en vez de recalcularlo con su puntuación
+  // actual cada vez que se renderiza (lo que hacía que el ranking de alguien que no ha vuelto a
+  // pelear pudiera moverse igualmente, solo porque un rival de hace tiempo mejoró o empeoró después).
+  result.winnerScoreAtFight = computeBaseScore(winner);
+  result.loserScoreAtFight = computeBaseScore(loser);
   // Actualizar stats de carrera
   if(result.fightStatsA) updateCareerStats(fA, result.fightStatsA, fA.id===winner.id);
   if(result.fightStatsB) updateCareerStats(fB, result.fightStatsB, fB.id===winner.id);
