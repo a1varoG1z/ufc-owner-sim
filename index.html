@@ -2530,6 +2530,14 @@ function runPreEventInjuryCheck(ev, onDone){
 
 function simulateEvent(ev){
   if(ev.status==='completed') return;
+  // Refrescar el ranking ANTES de resolver cualquier combate: computeBaseScore usa
+  // STATE.meta.eventSeq (ya incrementado por createEvent() para ESTE evento) para la
+  // inactividad — si no se refresca aquí, las puntuaciones "congeladas en el momento del
+  // combate" (winner/loserFullScoreAtFight) quedan basadas en el eventSeq del evento ANTERIOR
+  // (un paso de inactividad por detrás de los demás peleadores, que sí se refrescan al final
+  // de este evento en finishEvent()), inflando ligeramente el tope de cara a cara respecto a
+  // los peleadores que no han peleado.
+  refreshRankings();
   ev.card.forEach(fight=>{
     const fA = STATE.fighters.find(x=>x.id===fight.fighterA);
     const fB = STATE.fighters.find(x=>x.id===fight.fighterB);
@@ -5311,6 +5319,10 @@ function openLiveFightViewer(ev){
 
   function applyAllAndFinish(){
     clearTicker();
+    // Ver comentario equivalente en simulateEvent(): refrescar antes de resolver combates para
+    // que las puntuaciones congeladas usen el eventSeq ya incrementado por createEvent() de este
+    // evento, no el del evento anterior.
+    refreshRankings();
     results.forEach(({fight, result, missedId})=>{
       fight.result = {
         winnerId:result.winner.id, loserId:result.loser.id,
@@ -5472,8 +5484,10 @@ function revertEvent(ev){
       }
     }
   });
-  // Revertir eventSeq
-  if(STATE.meta.eventSeq>1) STATE.meta.eventSeq--;
+  // Revertir eventSeq (arranca en 0, así que el guardia es >0, no >1 — con >1 no se deshacía
+  // nunca el incremento del primer evento de una partida nueva, dejando el contador en 1 en vez
+  // de volver a 0)
+  if(STATE.meta.eventSeq>0) STATE.meta.eventSeq--;
   logEvent(`↩️ Evento "${fName(ev)}" revertido. Sus resultados han sido eliminados.`);
 }
 
@@ -6128,7 +6142,12 @@ function finishEvent(ev){
   const net=eventRevenue-totalPurses;
   logEvent(`💰 ${fName(ev)}: ingresos $${eventRevenue.toLocaleString()} − bolsas $${totalPurses.toLocaleString()} = ${net>=0?'+':''}$${net.toLocaleString()}`);
 
-  STATE.meta.eventSeq++;
+  // OJO: STATE.meta.eventSeq YA se incrementó en createEvent() al crear este evento — no volver a
+  // incrementarlo aquí. Este segundo incremento duplicaba el contador en cada evento, con lo que
+  // la inactividad de los peleadores (computeBaseScore) decaía al DOBLE de velocidad de la
+  // pretendida, los callouts caducaban en la mitad de eventos, las renegociaciones pendientes se
+  // resolvían solas el doble de rápido, y revertEvent() (que solo deshace UN incremento) dejaba
+  // el contador desincronizado en +1 para siempre tras revertir un evento ya finalizado.
   evolveAttributes(ev.date);
   // Lesiones de entrenamiento (probabilidad baja)
   applyTrainingInjuries(ev.date);
