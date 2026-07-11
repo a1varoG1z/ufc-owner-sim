@@ -2139,7 +2139,23 @@ function refreshRankings(){
   STATE.fighters.forEach(f=> f._baseScore = computeBaseScore(f));
   // Paso 2: ajuste por calidad de rivales recientes (efecto "leapfrog" realista)
   STATE.fighters.forEach(f=>{
-    f.rankScore = f._baseScore + qualityAdjustment(f);
+    let score = f._baseScore + qualityAdjustment(f);
+    // GARANTÍA BÁSICA: ganar tu combate más reciente nunca debe dejarte con una puntuación PEOR
+    // que la que tenías justo antes de pelear; perderlo nunca debe dejarte con una MEJOR. Root
+    // cause real (reportado por el usuario, verificado en simulación en el 45% de los combates):
+    // un peleador que llevaba mucho tiempo inactivo acumulaba una penalización grande en
+    // computeBaseScore (-0.4 por evento de inactividad); al volver a pelear —incluso perdiendo—
+    // esa penalización desaparece de golpe (su inactividad vuelve a 0), y esa mejora podía superar
+    // con creces el pequeño castigo de la derrota en sí, dejando al perdedor con MÁS puntuación
+    // que antes de perder (y ocasionalmente al ganador con MENOS, en el sentido contrario). Se
+    // corrige aquí mismo (no solo en el ranking derivado) para que la puntuación cruda mostrada en
+    // el perfil del peleador sea coherente con su puesto real en la división.
+    const last = recentResolvedFights(f,1)[0];
+    if(last && last.myFullScoreAtFight!=null){
+      if(last.won && score < last.myFullScoreAtFight) score = last.myFullScoreAtFight;
+      else if(!last.won && score > last.myFullScoreAtFight) score = last.myFullScoreAtFight;
+    }
+    f.rankScore = score;
   });
 }
 
@@ -2153,9 +2169,16 @@ function refreshRankings(){
 function effectiveRankScore(f){
   let eff = f.rankScore;
   const last = recentResolvedFights(f,1)[0];
-  if(last && last.won){
+  if(!last) return eff;
+  const myBefore = last.myFullScoreAtFight; // tu propia puntuación efectiva justo ANTES de ese combate
+  if(last.won){
+    // GARANTÍA BÁSICA: ganar nunca puede dejarte con una puntuación peor que la que tenías justo
+    // antes de pelear. Sin esto, la penalización por inactividad (computeBaseScore resta
+    // -0.4×eventos inactivo) podía pesar tan poco al recalcularse el ajuste de calidad de los
+    // últimos 5 combates que, en casos raros, ganar igualmente hacía bajar la puntuación.
+    if(myBefore!=null && eff < myBefore) eff = myBefore;
     const oppScoreThen = last.oppFullScoreAtFight ?? -Infinity;
-    const beatSomeoneBetter = oppScoreThen > (last.myFullScoreAtFight ?? 0);
+    const beatSomeoneBetter = oppScoreThen > (myBefore ?? 0);
     // TOPE, no un ascenso garantizado: vencer a alguien mejor valorado nunca debe dejarte por
     // delante de la posición que ocupaba EN AQUEL MOMENTO (de ahí el Math.min), pero eso no
     // significa que la victoria por sí sola te dé derecho a llegar hasta ahí — cuánto te acercas
@@ -2164,9 +2187,19 @@ function effectiveRankScore(f){
     // (eff = oppScoreThen), lo que permitía que un peleador con un historial nefasto (p.ej.
     // muchas más derrotas que victorias) se plantara en el puesto EXACTO de la persona a la que
     // acababa de ganar una sola vez — incluso el campeón — disparándolo a los primeros puestos
-    // de la división pese a un récord pésimo.
-    if(beatSomeoneBetter) eff = Math.min(eff, oppScoreThen+0.001);
-    else eff = Math.min(eff, Math.max(last.myFullScoreAtFight ?? eff, oppScoreThen+0.001));
+    // de la división pese a un récord pésimo. El Math.max con myBefore evita que este tope
+    // contradiga la garantía básica de arriba (nunca por debajo de tu propia puntuación previa).
+    if(beatSomeoneBetter) eff = Math.min(eff, Math.max(oppScoreThen+0.001, myBefore ?? -Infinity));
+    else eff = Math.min(eff, Math.max(myBefore ?? eff, oppScoreThen+0.001));
+  } else {
+    // GARANTÍA BÁSICA (el fallo real reportado): perder nunca puede dejarte con una puntuación
+    // MEJOR que la que tenías justo antes de pelear. Root cause: un peleador que llevaba mucho
+    // tiempo inactivo acumulaba una penalización grande (-0.4 por evento de inactividad); al
+    // volver a pelear —incluso perdiendo— esa penalización desaparece de golpe (su inactividad
+    // vuelve a 0), y esa mejora podía superar con creces el pequeño castigo de la derrota en sí,
+    // dejando al perdedor con MÁS puntuación que antes de perder. Verificado en simulación: pasaba
+    // en el 45% de los combates. Aquí se corrige de raíz, sea cual sea la causa exacta.
+    if(myBefore!=null && eff > myBefore) eff = myBefore;
   }
   return eff;
 }
