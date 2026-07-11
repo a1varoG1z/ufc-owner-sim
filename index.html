@@ -2036,33 +2036,39 @@ function fighterTrend(f){
 // comparar (recién simulado el primer evento, o el peleador aún no estaba en el top 15).
 function divisionRankTrend(fid, divId, curPos){
   const snaps = STATE.rankingHistory||[];
-  if(!snaps.length || curPos==null) return '';
-  // IMPORTANTE: comparamos la posición EN VIVO que se está mostrando ahora mismo en pantalla
-  // (curPos, calculada por el llamador con el mismo divisionFullList() que pinta la lista) contra
-  // la última fotografía guardada tras un evento real. Antes se comparaban DOS fotografías
-  // antiguas entre sí (la penúltima contra la última guardada) sin relación alguna con el número
-  // de posición que el jugador tiene delante — así que en cuanto el ranking en vivo se recalculaba
-  // de forma distinta a como quedó grabado en su día (cualquier ajuste del algoritmo de ranking, o
-  // una edición manual de un peleador desde el editor entre eventos), las flechas dejaban de
-  // corresponder a los números en pantalla: se podían ver varios peleadores "bajar" sin que nadie
-  // "subiera", porque no era la misma permutación la que se estaba comparando. Anclar "cur" a la
-  // posición realmente mostrada resuelve esto de raíz.
-  const prev = snaps[snaps.length-1].divisionsFull?.[divId]||[];
+  if(snaps.length<2 || curPos==null) return '';
+  // Comparamos la posición EN VIVO que se muestra en pantalla (curPos, calculada por el llamador
+  // con el mismo divisionFullList() que pinta la lista) contra la fotografía guardada ANTES del
+  // último evento simulado — snap[len-2], no snap[len-1] — para que la flecha refleje el cambio
+  // provocado específicamente por lo último que has jugado (ganar y subir, perder y bajar).
+  //
+  // Por qué NO comparar contra snap[len-1] (la fotografía más reciente): esa foto se guarda con el
+  // MISMO divisionFullList() justo al terminar ESE evento, así que casi siempre coincide con la
+  // posición en vivo de ahora mismo — comparar contra ella daba delta 0 para todo el mundo de forma
+  // permanente, incluso para quien acababa de ganar y adelantar a un rival en ese mismo evento (el
+  // fallo reportado tras el intento anterior: "ahora no salen flechas"). snap[len-2] (el estado
+  // ANTES de ese evento) es la referencia que de verdad deja ver su efecto.
+  //
+  // Por qué SÍ curPos en vivo en vez de snap[len-1].pos para el lado "actual": para seguir
+  // protegidos frente a un cambio del algoritmo de ranking o una edición manual de un peleador
+  // (Editor) ocurrida DESPUÉS de guardarse esa última foto, que dejaría la posición en pantalla
+  // desincronizada de lo que quedó grabado (el fallo original que motivó tocar esta función).
+  const prev = snaps[snaps.length-2].divisionsFull?.[divId]||[];
   const prevEntry = prev.find(x=>x.id===fid);
   if(!prevEntry){
-    // Sin snapshot en la última fotografía guardada para esta división: puede ser la primera vez
-    // que se registra a este peleador aquí (debut, fichaje de una rival, cambio de categoría), o
-    // que reaparece tras haber estado fuera de esta división un tiempo. En ambos casos no hay
-    // puesto previo con el que comparar, así que no se puede calcular una flecha real — se marca
-    // con un indicador de "sin referencia previa" en vez de dejarlo en blanco (que se leería como
-    // "sin cambios").
-    const everAppeared = snaps.some(s=>(s.divisionsFull?.[divId]||[]).some(x=>x.id===fid));
+    // Sin snapshot en la foto de referencia para esta división: puede ser la primera vez que se
+    // registra a este peleador aquí (debut, fichaje de una rival, cambio de categoría), o que
+    // reaparece tras haber estado fuera de esta división un tiempo. En ambos casos no hay puesto
+    // previo con el que comparar, así que no se puede calcular una flecha real — se marca con un
+    // indicador de "sin referencia previa" en vez de dejarlo en blanco (que se leería como "sin
+    // cambios").
+    const everAppeared = snaps.slice(0,-1).some(s=>(s.divisionsFull?.[divId]||[]).some(x=>x.id===fid));
     const title = everAppeared ? 'Reaparece en el ranking de esta división (sin puesto anterior con el que comparar)' : 'Primera vez registrado en el ranking de esta división';
     return `<span style="color:#82b1ff;font-size:.62rem;font-weight:700;white-space:nowrap" title="${title}">🆕</span>`;
   }
   const delta = prevEntry.pos - curPos; // positivo = subió (número de puesto más bajo)
-  if(delta>0) return `<span style="color:#69f0ae;font-size:.68rem;font-weight:700;white-space:nowrap" title="Subió ${delta} puesto${delta>1?'s':''} desde el último evento registrado">▲${delta}</span>`;
-  if(delta<0) return `<span style="color:#ef5350;font-size:.68rem;font-weight:700;white-space:nowrap" title="Bajó ${-delta} puesto${-delta>1?'s':''} desde el último evento registrado">▼${-delta}</span>`;
+  if(delta>0) return `<span style="color:#69f0ae;font-size:.68rem;font-weight:700;white-space:nowrap" title="Subió ${delta} puesto${delta>1?'s':''} desde el evento anterior">▲${delta}</span>`;
+  if(delta<0) return `<span style="color:#ef5350;font-size:.68rem;font-weight:700;white-space:nowrap" title="Bajó ${-delta} puesto${-delta>1?'s':''} desde el evento anterior">▼${-delta}</span>`;
   return '';
 }
 
