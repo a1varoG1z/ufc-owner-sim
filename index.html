@@ -2262,16 +2262,32 @@ function divisionFullList(divId){
 }
 function divisionTop15(divId){ return divisionFullList(divId).slice(0,15); }
 function p4pTop15(){
-  // En P4P, todos los campeones activos tienen prioridad por delante del resto, luego sort por score
-  return STATE.fighters.filter(f=>f.status==='active' || f.status==='injured')
-    .sort((a,b)=>{
+  // En P4P, todos los campeones activos tienen prioridad por delante del resto, luego sort por
+  // score — usando effectiveRankScore (no el rankScore crudo) para heredar el mismo tope de "cara
+  // a cara" que ya tienen las divisiones: no saltarse a nadie a quien no has vencido, y no
+  // dispararte por una sola sorpresa si el resto de tu carrera no lo respalda.
+  const pool = STATE.fighters.filter(f=>f.status==='active' || f.status==='injured');
+  const effScore = new Map();
+  pool.forEach(f=> effScore.set(f.id, effectiveRankScore(f)));
+  // Misma garantía mínima (acotada a +20) que divisionFullList(): quien ganó su combate más
+  // reciente no debe quedar peor clasificado en P4P que a quien venció — ver el comentario
+  // detallado en divisionFullList() para la razón del tope.
+  pool.forEach(f=>{
+    const last = recentResolvedFights(f,1)[0];
+    if(!last || !last.won) return;
+    const oppEff = effScore.get(last.opp.id);
+    if(oppEff==null) return;
+    const cur = effScore.get(f.id);
+    if(cur < oppEff) effScore.set(f.id, Math.min(oppEff+0.001, cur+20));
+  });
+  return pool.sort((a,b)=>{
       const aChamp = isChampion(a.id)?1:0, bChamp = isChampion(b.id)?1:0;
       if(aChamp!==bChamp) return bChamp-aChamp; // campeones primero
       const am=a.manualRankP4P, bm=b.manualRankP4P;
       if(am!=null && bm!=null) return am-bm;
       if(am!=null) return -1;
       if(bm!=null) return 1;
-      return b.rankScore-a.rankScore;
+      return effScore.get(b.id)-effScore.get(a.id);
     }).slice(0,15);
 }
 
