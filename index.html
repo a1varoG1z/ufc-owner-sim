@@ -7138,8 +7138,11 @@ function tplDivisions(){
   const decCount = divFights.filter(f=>f.method==='Decisión').length;
   const total = divFights.length;
 
-  // Usar divisionTop15 que ya gestiona campeón en #1, interino en #2, resto por score
-  const ranked = divisionTop15(selDiv);
+  // Usar divisionFullList que ya gestiona campeón en #1, interino en #2, resto por score —
+  // recortado a los 15 mejores salvo que el usuario pida ver el resto de la división.
+  const fullDivList = divisionFullList(selDiv);
+  const showAllDiv = !!UI.divShowAll;
+  const ranked = showAllDiv ? fullDivList : fullDivList.slice(0,15);
 
   // Árbol visual: mostrar victorias recientes entre los top fighters
   const treeNodes = ranked.slice(0,8);
@@ -7218,6 +7221,9 @@ function tplDivisions(){
           </div>`;
         }).join('');
       })()}
+      ${fullDivList.length>15?`<div style="text-align:center;margin-top:8px">
+        <button class="btn small" id="divShowMoreBtn">${showAllDiv?'▲ Mostrar solo el top 15':`▼ Mostrar el resto de la división (${fullDivList.length-15} más)`}</button>
+      </div>`:''}
     </div>
 
     <!-- Árbol de victorias -->
@@ -7230,6 +7236,8 @@ function tplDivisions(){
 function bindDivisions(){
   const sel=document.getElementById('divTreeSel');
   if(sel){ sel.value=UI.divTreeDiv||DIVISIONS[0].id; sel.onchange=()=>{UI.divTreeDiv=sel.value;render();}; }
+  const showMoreBtn=document.getElementById('divShowMoreBtn');
+  if(showMoreBtn) showMoreBtn.onclick=()=>{ UI.divShowAll=!UI.divShowAll; render(); };
   document.querySelectorAll('#app .clickable[data-id]').forEach(el=>{
     el.onclick=()=>{ if(el.dataset.id) openFighterModal(el.dataset.id); };
   });
