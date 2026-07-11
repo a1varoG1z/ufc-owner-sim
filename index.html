@@ -2193,6 +2193,24 @@ function divisionFullList(divId){
   //    debajo no te dispara de golpe frente a gente con la que no te has cruzado.
   const effScore = new Map();
   pool.forEach(f=> effScore.set(f.id, effectiveRankScore(f)));
+  // Garantía mínima (acotada): quien ganó su combate más reciente contra alguien que SIGUE en
+  // esta división se acerca a su puesto aunque el ajuste normal no bastara — perder no debería
+  // dejarte por delante de a quien acabas de vencer. Sin esto, un peleador con una mala racha
+  // previa (varias derrotas seguidas) podía ganar su último combate y aun así aparecer por debajo
+  // del rival al que acababa de machacar, porque el ajuste por calidad de las derrotas anteriores
+  // pesaba más que esta única victoria — justo lo que reportó el usuario con Mike Davis (gana)
+  // quedando detrás de Danny Chavez (pierde). El acercamiento está topado a +20 (el mismo límite
+  // que usa qualityAdjustment por combate): así se corrige el caso normal (rivales de nivel
+  // parecido) sin reabrir el problema de que un récord nefasto se cuele hasta el puesto de alguien
+  // con un currículum mucho mejor (p.ej. el campeón) solo por una victoria puntual.
+  pool.forEach(f=>{
+    const last = recentResolvedFights(f,1)[0];
+    if(!last || !last.won) return;
+    const oppEff = effScore.get(last.opp.id);
+    if(oppEff==null) return;
+    const cur = effScore.get(f.id);
+    if(cur < oppEff) effScore.set(f.id, Math.min(oppEff+0.001, cur+20));
+  });
   return pool.sort((a,b)=>{
       if(a.id===champId)   return -1; // #1 siempre
       if(b.id===champId)   return  1;
