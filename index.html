@@ -6710,17 +6710,31 @@ function tplRankingHistory(){
     const isI=STATE.titles.some(t=>t.interimHolderId===f.id);
     return `<option value="${f.id}">${isC?'🏆 ':isI?'🥈 ':''}${fName(f)}${f.status==='retired'?' (ret.)':''}</option>`;
   }).join('');
+  // IMPORTANTE: usar divisionsFull (ranking COMPLETO), no divisions (recortado al top 15). Si se
+  // usa el recortado, cualquier evento en el que el peleador cayera fuera del top 15 desaparece
+  // del todo del gráfico (su entrada no existe en ese snapshot) — la línea salta directamente del
+  // último punto visible dentro del top 15 al punto en el que reaparece, ocultando por completo
+  // una caída y posterior recuperación real. Eso hacía que el gráfico pareciera contradecir a la
+  // flecha de "Divisiones" (que sí usa divisionsFull): un peleador podía verse "bajando poco a
+  // poco" en este gráfico mientras Divisiones marcaba una subida de +12 en el último evento — en
+  // realidad se había desplomado fuera del top 15 (invisible aquí) y acababa de recuperarse de
+  // golpe. divisionsFull existe para snapshots nuevos; si falta (partidas guardadas antes de que
+  // se guardara ese campo) se recurre al recortado como aproximación.
   const chartData=snaps.map(s=>{
-    const list=selDiv==='p4p'?s.p4p:(s.divisions[selDiv]||[]);
+    const list=selDiv==='p4p'?s.p4p:(s.divisionsFull?.[selDiv]||s.divisions[selDiv]||[]);
     const entry=list.find(x=>x.id===selFid);
     return {date:s.date,pos:entry?entry.pos:null};
   }).filter(x=>x.pos!==null);
   const W=340,H=150,PAD=32;
   let svg='';
   if(chartData.length>=2){
+    // Escala vertical dinámica: si el peleador ha estado fuera del top 15 en algún punto, el eje
+    // tiene que llegar hasta su peor puesto real, si no la línea se saldría del gráfico.
+    const maxPos=Math.max(15, ...chartData.map(d=>d.pos));
     const xs=chartData.map((_,i)=>PAD+(i/(chartData.length-1))*(W-PAD*2));
-    const ys=chartData.map(d=>PAD+(d.pos-1)/(14)*(H-PAD*2));
-    [1,5,10,15].forEach(p=>{const y=PAD+(p-1)/14*(H-PAD*2);svg+=`<line x1="${PAD}" y1="${y}" x2="${W-PAD}" y2="${y}" stroke="#222" stroke-width="1"/><text x="${PAD-4}" y="${y+4}" fill="#555" font-size="9" text-anchor="end">#${p}</text>`;});
+    const ys=chartData.map(d=>PAD+(d.pos-1)/(maxPos-1)*(H-PAD*2));
+    const gridPositions=maxPos<=15?[1,5,10,15]:[1,5,10,15,maxPos];
+    gridPositions.forEach(p=>{const y=PAD+(p-1)/(maxPos-1)*(H-PAD*2);svg+=`<line x1="${PAD}" y1="${y}" x2="${W-PAD}" y2="${y}" stroke="#222" stroke-width="1"/><text x="${PAD-4}" y="${y+4}" fill="#555" font-size="9" text-anchor="end">#${p}</text>`;});
     svg+=`<polyline points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}" fill="none" stroke="#d4af37" stroke-width="2.5" stroke-linejoin="round"/>`;
     chartData.forEach((d,i)=>{
       svg+=`<circle cx="${xs[i]}" cy="${ys[i]}" r="4" fill="#d4af37"/>`;
