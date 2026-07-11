@@ -2187,17 +2187,20 @@ function effectiveRankScore(f){
     if(myBefore!=null && eff < myBefore) eff = myBefore;
     const oppScoreThen = last.oppFullScoreAtFight ?? -Infinity;
     const beatSomeoneBetter = oppScoreThen > (myBefore ?? 0);
-    // TOPE, no un ascenso garantizado: vencer a alguien mejor valorado nunca debe dejarte por
-    // delante de la posición que ocupaba EN AQUEL MOMENTO (de ahí el Math.min), pero eso no
-    // significa que la victoria por sí sola te dé derecho a llegar hasta ahí — cuánto te acercas
-    // depende de tu propio f.rankScore (que ya incluye qualityAdjustment, ponderado por la
-    // magnitud real de la sorpresa). Antes esto era una asignación incondicional
-    // (eff = oppScoreThen), lo que permitía que un peleador con un historial nefasto (p.ej.
-    // muchas más derrotas que victorias) se plantara en el puesto EXACTO de la persona a la que
-    // acababa de ganar una sola vez — incluso el campeón — disparándolo a los primeros puestos
-    // de la división pese a un récord pésimo. El Math.max con myBefore evita que este tope
-    // contradiga la garantía básica de arriba (nunca por debajo de tu propia puntuación previa).
-    if(beatSomeoneBetter) eff = Math.min(eff, Math.max(oppScoreThen+0.001, myBefore ?? -Infinity));
+    // TOPE MODERADO (no un ascenso garantizado ni un intercambio de posiciones completo): vencer a
+    // alguien mejor valorado te acerca a su nivel, pero como mucho hasta el PUNTO MEDIO entre tu
+    // puntuación de antes y la suya — no hasta igualarla del todo. Antes el tope era el ejercicio
+    // completo de la puntuación del rival (oppScoreThen), lo que en la práctica producía casi un
+    // intercambio total de posición: un #8 que le ganaba al #2 podía acabar plantado en el #2 (y el
+    // #2 hundido cerca del puesto que dejaba libre el #8) — demasiado agresivo para reflejar UNA
+    // sola victoria frente a toda una trayectoria de diferencia. Real UFC: una sorpresa grande
+    // adelanta bastante al ganador y castiga al perdedor, pero rara vez los intercambia del todo.
+    // Cuánto te acercas al punto medio sigue dependiendo de tu propio f.rankScore (con su
+    // qualityAdjustment), así que esto es un TECHO, no una subida automática hasta ahí.
+    if(beatSomeoneBetter){
+      const mid = ((myBefore ?? oppScoreThen) + oppScoreThen) / 2;
+      eff = Math.min(eff, Math.max(mid, myBefore ?? -Infinity));
+    }
     else eff = Math.min(eff, Math.max(myBefore ?? eff, oppScoreThen+0.001));
   } else {
     // GARANTÍA BÁSICA (el fallo real reportado): perder nunca puede dejarte con una puntuación
@@ -2208,6 +2211,17 @@ function effectiveRankScore(f){
     // dejando al perdedor con MÁS puntuación que antes de perder. Verificado en simulación: pasaba
     // en el 45% de los combates. Aquí se corrige de raíz, sea cual sea la causa exacta.
     if(myBefore!=null && eff > myBefore) eff = myBefore;
+    // SUELO MODERADO, simétrico al tope de arriba: perder contra alguien peor valorado te castiga,
+    // pero como mucho hasta el mismo PUNTO MEDIO entre ambas puntuaciones de antes del combate — no
+    // te hunde hasta (ni más allá de) donde estaba el rival. Sin esto, un #2 que perdía contra un
+    // #8 podía desplomarse casi hasta el puesto que el #8 dejaba libre, un intercambio de posición
+    // demasiado agresivo para una sola derrota frente a una trayectoria mucho mejor.
+    const oppScoreThen = last.oppFullScoreAtFight ?? Infinity;
+    const lostToWorse = oppScoreThen < (myBefore ?? 0);
+    if(lostToWorse){
+      const mid = ((myBefore ?? oppScoreThen) + oppScoreThen) / 2;
+      eff = Math.max(eff, Math.min(mid, myBefore ?? Infinity));
+    }
   }
   return eff;
 }
@@ -2234,24 +2248,41 @@ function divisionFullList(divId){
   //    debajo no te dispara de golpe frente a gente con la que no te has cruzado.
   const effScore = new Map();
   pool.forEach(f=> effScore.set(f.id, effectiveRankScore(f)));
-  // Garantía mínima (acotada): quien ganó su combate más reciente contra alguien que SIGUE en
-  // esta división se acerca a su puesto aunque el ajuste normal no bastara — perder no debería
-  // dejarte por delante de a quien acabas de vencer. Sin esto, un peleador con una mala racha
-  // previa (varias derrotas seguidas) podía ganar su último combate y aun así aparecer por debajo
-  // del rival al que acababa de machacar, porque el ajuste por calidad de las derrotas anteriores
-  // pesaba más que esta única victoria — justo lo que reportó el usuario con Mike Davis (gana)
-  // quedando detrás de Danny Chavez (pierde). El acercamiento está topado a +20 (el mismo límite
-  // que usa qualityAdjustment por combate): así se corrige el caso normal (rivales de nivel
-  // parecido) sin reabrir el problema de que un récord nefasto se cuele hasta el puesto de alguien
-  // con un currículum mucho mejor (p.ej. el campeón) solo por una victoria puntual.
-  pool.forEach(f=>{
-    const last = recentResolvedFights(f,1)[0];
-    if(!last || !last.won) return;
-    const oppEff = effScore.get(last.opp.id);
-    if(oppEff==null) return;
-    const cur = effScore.get(f.id);
-    if(cur < oppEff) effScore.set(f.id, Math.min(oppEff+0.001, cur+20));
-  });
+  // GARANTÍA DE ORDEN (sin tope): quien ganó su combate más reciente contra alguien que SIGUE en
+  // esta división nunca debe aparecer por debajo de él en la lista — perder no debería dejarte por
+  // delante de a quien acabas de vencer. Esto es una regla de ORDEN, no de magnitud: no dice cuánto
+  // debe subir el ganador (eso ya lo decide, de forma moderada, effectiveRankScore() con su tope de
+  // "punto medio" para sorpresas grandes) — solo que, sea cual sea esa subida, no puede quedar por
+  // debajo del puesto que le queda al perdedor tras el combate. Por eso NO lleva tope de magnitud
+  // (antes sí, +20): con el punto medio ya moderando cuánto se acercan ambas puntuaciones en
+  // sorpresas grandes (p.ej. un #8 que le gana al #2), un tope adicional aquí podía dejar al
+  // ganador todavía por debajo del perdedor cuando la diferencia previa era mayor de 20 puntos —
+  // reabriendo justo el bug que esta garantía existe para evitar (reportado con Mike Davis venciendo
+  // a Danny Chavez y quedando detrás suyo en el ranking).
+  // Se repite varias veces porque un solo pase depende del orden de recorrido: si A venció a B y B
+  // (antes de perder) venció a C, el ajuste de A puede necesitar el valor YA CORREGIDO de B, no el
+  // que tenía B antes de aplicarle su propio ajuste. Estas cadenas cortas se estabilizan en un par
+  // de iteraciones; el límite de 8 es margen de sobra.
+  //
+  // IMPORTANTE: la comparación es "<=", no "<". Con el tope de "punto medio" de effectiveRankScore()
+  // (ver más arriba), ganador y perdedor a menudo acaban con la MISMA puntuación exacta (los dos se
+  // acercan al mismo punto medio desde lados opuestos). Con "<" estricto, un empate exacto no se
+  // consideraba una violación y no se corregía — el desempate quedaba en manos del orden interno
+  // de `pool` (irrelevante, no relacionado con quién ganó), que en la práctica dejaba al ganador
+  // detrás del perdedor en ~5-10% de los combates. Verificado con Playwright: tras cambiar a "<=",
+  // 0 violaciones en varias tandas de simulación larga.
+  for(let pass=0; pass<8; pass++){
+    let changed=false;
+    pool.forEach(f=>{
+      const last = recentResolvedFights(f,1)[0];
+      if(!last || !last.won) return;
+      const oppEff = effScore.get(last.opp.id);
+      if(oppEff==null) return;
+      const cur = effScore.get(f.id);
+      if(cur <= oppEff){ effScore.set(f.id, oppEff+0.001); changed=true; }
+    });
+    if(!changed) break;
+  }
   return pool.sort((a,b)=>{
       if(a.id===champId)   return -1; // #1 siempre
       if(b.id===champId)   return  1;
@@ -2273,17 +2304,24 @@ function p4pTop15(){
   const pool = STATE.fighters.filter(f=>f.status==='active' || f.status==='injured');
   const effScore = new Map();
   pool.forEach(f=> effScore.set(f.id, effectiveRankScore(f)));
-  // Misma garantía mínima (acotada a +20) que divisionFullList(): quien ganó su combate más
-  // reciente no debe quedar peor clasificado en P4P que a quien venció — ver el comentario
-  // detallado en divisionFullList() para la razón del tope.
-  pool.forEach(f=>{
-    const last = recentResolvedFights(f,1)[0];
-    if(!last || !last.won) return;
-    const oppEff = effScore.get(last.opp.id);
-    if(oppEff==null) return;
-    const cur = effScore.get(f.id);
-    if(cur < oppEff) effScore.set(f.id, Math.min(oppEff+0.001, cur+20));
-  });
+  // Misma garantía de ORDEN (sin tope, con varios pases y "<=") que divisionFullList(): quien ganó
+  // su combate más reciente no debe quedar peor clasificado en P4P que a quien venció — ver el
+  // comentario detallado en divisionFullList() para la razón de cada detalle (el tope de +20 podía
+  // dejar al ganador por debajo si la diferencia previa era mayor; los varios pases resuelven
+  // cadenas cortas de victorias encadenadas; "<=" en vez de "<" corrige el caso de empate exacto,
+  // frecuente ahora que effectiveRankScore() modera las sorpresas grandes hacia un punto medio).
+  for(let pass=0; pass<8; pass++){
+    let changed=false;
+    pool.forEach(f=>{
+      const last = recentResolvedFights(f,1)[0];
+      if(!last || !last.won) return;
+      const oppEff = effScore.get(last.opp.id);
+      if(oppEff==null) return;
+      const cur = effScore.get(f.id);
+      if(cur <= oppEff){ effScore.set(f.id, oppEff+0.001); changed=true; }
+    });
+    if(!changed) break;
+  }
   return pool.sort((a,b)=>{
       const aChamp = isChampion(a.id)?1:0, bChamp = isChampion(b.id)?1:0;
       if(aChamp!==bChamp) return bChamp-aChamp; // campeones primero
