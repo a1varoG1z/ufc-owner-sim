@@ -4120,12 +4120,19 @@ function fillFighterSelects(card){
   let pool = STATE.fighters.filter(fighterAvailable);
   if(divId!=='ALL') pool = pool.filter(f=>f.division===divId);
 
-  // Ordenar: campeón primero, interino segundo, luego por rankScore
+  // Ordenar: campeón primero, interino segundo, luego por puesto real de la división — usando el
+  // MISMO orden que divisionFullList() (con el que se calcula la etiqueta #N de más abajo), no el
+  // rankScore crudo. Antes se ordenaba por rankScore pero se etiquetaba con la posición de
+  // divisionTop15/divisionFullList (que aplica el tope de "cara a cara" entre divisiones): ambos
+  // criterios pueden discrepar, así que la lista podía aparecer con los números completamente
+  // desordenados (p.ej. #6, #5, #11, #13 seguidos) aunque cada etiqueta individual fuera correcta.
+  const divIdxMap = divId!=='ALL' ? new Map(divisionFullList(divId).map((f,i)=>[f.id,i])) : null;
   pool.sort((a,b)=>{
     const aFull=STATE.titles.some(t=>t.holderId===a.id)?2:STATE.titles.some(t=>t.interimHolderId===a.id)?1:0;
     const bFull=STATE.titles.some(t=>t.holderId===b.id)?2:STATE.titles.some(t=>t.interimHolderId===b.id)?1:0;
     if(aFull!==bFull) return bFull-aFull;
-    return b.rankScore-a.rankScore;
+    if(divIdxMap) return (divIdxMap.get(a.id) ?? Infinity) - (divIdxMap.get(b.id) ?? Infinity);
+    return effectiveRankScore(b)-effectiveRankScore(a);
   });
 
   // Calcular número de ranking REAL (posición en el ranking de su división)
