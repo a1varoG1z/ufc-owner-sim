@@ -2049,14 +2049,18 @@ function divisionRankTrend(fid, divId){
   const prevEntry = prev.find(x=>x.id===fid);
   if(!prevEntry){
     // Sin snapshot inmediatamente anterior en ESTA división: puede ser la primera vez que se
-    // registra a este peleador aquí (debut, fichaje de una rival, cambio de categoría) — en ese
-    // caso no hay puesto previo con el que comparar, así que no se puede calcular una flecha real.
-    // Se marca como "nuevo" en vez de dejarlo en blanco sin explicación, para que se entienda por
-    // qué otros peleadores de la lista pueden bajar sin que nadie visible haya subido: quien
-    // provocó el hueco es precisamente este fichaje/debut, no un fallo de cálculo.
+    // registra a este peleador aquí (debut, fichaje de una rival, cambio de categoría), o que
+    // reaparece tras haber estado fuera de esta división un tiempo (p.ej. un cambio de categoría
+    // temporal). En ambos casos no hay puesto previo INMEDIATO con el que comparar, así que no se
+    // puede calcular una flecha real. Antes, si el peleador SÍ había aparecido en algún snapshot
+    // más antiguo (solo no en el inmediatamente anterior), esto devolvía un blanco silencioso — que
+    // se leía como "sin cambios", cuando en realidad no había datos para saberlo. Se marca siempre
+    // con el mismo indicador de "sin referencia previa", para que se entienda por qué otros
+    // peleadores de la lista pueden bajar sin que nadie visible haya subido: quien provocó el
+    // hueco es precisamente este reingreso/debut, no un fallo de cálculo.
     const everAppeared = snaps.slice(0,-1).some(s=>(s.divisionsFull?.[divId]||[]).some(x=>x.id===fid));
-    if(!everAppeared) return `<span style="color:#82b1ff;font-size:.62rem;font-weight:700;white-space:nowrap" title="Primera vez registrado en el ranking de esta división">🆕</span>`;
-    return '';
+    const title = everAppeared ? 'Reaparece en el ranking de esta división (sin puesto inmediatamente anterior con el que comparar)' : 'Primera vez registrado en el ranking de esta división';
+    return `<span style="color:#82b1ff;font-size:.62rem;font-weight:700;white-space:nowrap" title="${title}">🆕</span>`;
   }
   const delta = prevEntry.pos - curEntry.pos; // positivo = subió (número de puesto más bajo)
   if(delta>0) return `<span style="color:#69f0ae;font-size:.68rem;font-weight:700;white-space:nowrap" title="Subió ${delta} puesto${delta>1?'s':''} desde el evento anterior">▲${delta}</span>`;
@@ -2258,16 +2262,32 @@ function divisionFullList(divId){
 }
 function divisionTop15(divId){ return divisionFullList(divId).slice(0,15); }
 function p4pTop15(){
-  // En P4P, todos los campeones activos tienen prioridad por delante del resto, luego sort por score
-  return STATE.fighters.filter(f=>f.status==='active' || f.status==='injured')
-    .sort((a,b)=>{
+  // En P4P, todos los campeones activos tienen prioridad por delante del resto, luego sort por
+  // score — usando effectiveRankScore (no el rankScore crudo) para heredar el mismo tope de "cara
+  // a cara" que ya tienen las divisiones: no saltarse a nadie a quien no has vencido, y no
+  // dispararte por una sola sorpresa si el resto de tu carrera no lo respalda.
+  const pool = STATE.fighters.filter(f=>f.status==='active' || f.status==='injured');
+  const effScore = new Map();
+  pool.forEach(f=> effScore.set(f.id, effectiveRankScore(f)));
+  // Misma garantía mínima (acotada a +20) que divisionFullList(): quien ganó su combate más
+  // reciente no debe quedar peor clasificado en P4P que a quien venció — ver el comentario
+  // detallado en divisionFullList() para la razón del tope.
+  pool.forEach(f=>{
+    const last = recentResolvedFights(f,1)[0];
+    if(!last || !last.won) return;
+    const oppEff = effScore.get(last.opp.id);
+    if(oppEff==null) return;
+    const cur = effScore.get(f.id);
+    if(cur < oppEff) effScore.set(f.id, Math.min(oppEff+0.001, cur+20));
+  });
+  return pool.sort((a,b)=>{
       const aChamp = isChampion(a.id)?1:0, bChamp = isChampion(b.id)?1:0;
       if(aChamp!==bChamp) return bChamp-aChamp; // campeones primero
       const am=a.manualRankP4P, bm=b.manualRankP4P;
       if(am!=null && bm!=null) return am-bm;
       if(am!=null) return -1;
       if(bm!=null) return 1;
-      return b.rankScore-a.rankScore;
+      return effScore.get(b.id)-effScore.get(a.id);
     }).slice(0,15);
 }
 
