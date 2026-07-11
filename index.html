@@ -2116,11 +2116,18 @@ function qualityAdjustment(f){
     const myBase = res.myScoreAtFight;
     const oppBase = res.oppScoreAtFight;
     const diff = oppBase - myBase; // positivo = el rival estaba mejor valorado que tú, EN AQUEL MOMENTO
+    // Tope de la diferencia de calidad a 20 (antes 60): con 60, un solo combate reciente (peso
+    // 1.0) podía sumar/restar hasta 54-66 puntos — muchísimo más que toda una carrera de récord
+    // (cada victoria/derrota en computeBaseScore solo vale 2.4/-1.5). Eso permitía que un
+    // peleador con un historial nefasto (muchas más derrotas que victorias) se disparara a los
+    // primeros puestos con una única sorpresa, o que una sola derrota mala hundiera a alguien con
+    // una carrera sólida — como sufrió Nate Diaz tras una única derrota titular. Con 20, sigue
+    // siendo un empujón notable, pero no puede por sí solo borrar toda una carrera.
     if(res.won){
-      adj += w * clamp(diff, 0, 60) * 0.9; // victoria de calidad: te adelanta
+      adj += w * clamp(diff, 0, 20) * 0.9; // victoria de calidad: te adelanta
       if(diff<0) adj += w * 1.5; // ganar a cualquiera, aunque esté peor valorado, suma un poco
     } else {
-      adj -= w * clamp(-diff, 0, 60) * 1.1; // perder contra alguien peor valorado duele mucho
+      adj -= w * clamp(-diff, 0, 20) * 1.1; // perder contra alguien peor valorado duele mucho
       if(diff>0) adj -= w * 1.5; // perder, aunque sea contra alguien mejor, también resta un poco
     }
   });
@@ -2149,7 +2156,16 @@ function effectiveRankScore(f){
   if(last && last.won){
     const oppScoreThen = last.oppFullScoreAtFight ?? -Infinity;
     const beatSomeoneBetter = oppScoreThen > (last.myFullScoreAtFight ?? 0);
-    if(beatSomeoneBetter) eff = oppScoreThen+0.001;
+    // TOPE, no un ascenso garantizado: vencer a alguien mejor valorado nunca debe dejarte por
+    // delante de la posición que ocupaba EN AQUEL MOMENTO (de ahí el Math.min), pero eso no
+    // significa que la victoria por sí sola te dé derecho a llegar hasta ahí — cuánto te acercas
+    // depende de tu propio f.rankScore (que ya incluye qualityAdjustment, ponderado por la
+    // magnitud real de la sorpresa). Antes esto era una asignación incondicional
+    // (eff = oppScoreThen), lo que permitía que un peleador con un historial nefasto (p.ej.
+    // muchas más derrotas que victorias) se plantara en el puesto EXACTO de la persona a la que
+    // acababa de ganar una sola vez — incluso el campeón — disparándolo a los primeros puestos
+    // de la división pese a un récord pésimo.
+    if(beatSomeoneBetter) eff = Math.min(eff, oppScoreThen+0.001);
     else eff = Math.min(eff, Math.max(last.myFullScoreAtFight ?? eff, oppScoreThen+0.001));
   }
   return eff;
