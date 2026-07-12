@@ -2296,7 +2296,11 @@ function divisionFullList(divId){
     });
 }
 function divisionTop15(divId){ return divisionFullList(divId).slice(0,15); }
-function p4pTop15(){
+// Ranking P4P COMPLETO (sin recortar a 15) — igual que divisionFullList()/divisionTop15(), para
+// que saveRankingSnapshot() pueda guardar un p4pFull sin recortar: si no, un peleador que cae
+// fuera del top 15 en P4P desaparece del todo de su propio gráfico histórico (mismo fallo que ya
+// se corrigió para las divisiones — ver el comentario de esa corrección en tplRankingHistory()).
+function p4pFullList(){
   // En P4P, todos los campeones activos tienen prioridad por delante del resto, luego sort por
   // score — usando effectiveRankScore (no el rankScore crudo) para heredar el mismo tope de "cara
   // a cara" que ya tienen las divisiones: no saltarse a nadie a quien no has vencido, y no
@@ -2330,8 +2334,9 @@ function p4pTop15(){
       if(am!=null) return -1;
       if(bm!=null) return 1;
       return effScore.get(b.id)-effScore.get(a.id);
-    }).slice(0,15);
+    });
 }
+function p4pTop15(){ return p4pFullList().slice(0,15); }
 
 /* ====================== RECORDS DE LA LIGA ====================== */
 // Se actualizan tras cada pelea simulada
@@ -3573,6 +3578,42 @@ function openFighterModal(fid, context){
     if(parts.length) rankInfo=`<p class="muted" style="margin:2px 0">📊 Rankings — ${parts.join(' · ')}</p>`;
   }
 
+  // Mini-gráficas de evolución de ranking (P4P + división propia), plegadas por defecto para no
+  // alargar más un perfil ya de por sí largo — un toque las despliega, sin tener que salir del
+  // perfil e ir a la pestaña "Ranking hist." aparte. Reutiliza rankPositionChartSvg() (la misma
+  // función que dibuja el gráfico de esa pestaña) y los mismos snapshots (p4pFull/divisionsFull,
+  // sin recortar a 15) para que no sufra el mismo fallo de "caídas invisibles" que ya se corrigió
+  // allí.
+  let profileRankSection='';
+  {
+    const snaps = STATE.rankingHistory||[];
+    if(snaps.length){
+      const years=[...new Set(snaps.map(s=>s.date.slice(0,4)))].sort();
+      const selYear = (UI.profileRankYear && years.includes(UI.profileRankYear)) ? UI.profileRankYear : 'all';
+      const yearOpts = `<option value="all">Todos los años</option>`+years.map(y=>`<option value="${y}"${y===selYear?' selected':''}>${y}</option>`).join('');
+      const filteredSnaps = selYear==='all' ? snaps : snaps.filter(s=>s.date.slice(0,4)===selYear);
+      const buildData=(picker)=>filteredSnaps.map(s=>{
+        const list=picker(s)||[];
+        const entry=list.find(x=>x.id===f.id);
+        return {date:s.date,pos:entry?entry.pos:null};
+      }).filter(x=>x.pos!==null);
+      const p4pData = buildData(s=>s.p4pFull||s.p4p);
+      const divData = buildData(s=>s.divisionsFull?.[f.division]||s.divisions?.[f.division]);
+      if(p4pData.length || divData.length){
+        profileRankSection = `<details style="margin:6px 0" id="profileRankDetails"${UI.profileRankOpen?' open':''}>
+          <summary style="cursor:pointer;font-size:.72rem;color:#888">📈 Evolución de ranking</summary>
+          <div style="margin-top:8px">
+            <select id="profileRankYearSel" style="margin-bottom:8px">${yearOpts}</select>
+            <div style="font-size:.68rem;color:#666;margin-bottom:3px">P4P</div>
+            ${rankPositionChartSvg(p4pData,300,110,28)}
+            <div style="font-size:.68rem;color:#666;margin:8px 0 3px">${divName(f.division)}</div>
+            ${rankPositionChartSvg(divData,300,110,28)}
+          </div>
+        </details>`;
+      }
+    }
+  }
+
   const unbeaten = f.record.losses===0 && f.record.ufcLosses===0 && f.record.wins>0;
   const rankBadges = fighterUFCRankings(f);
 
@@ -3632,6 +3673,7 @@ function openFighterModal(fid, context){
       ${unbeaten? `<div class="hofBadge" style="background:linear-gradient(90deg,#004d00,#00b300,#004d00);color:#e8ffe8">⚡ INVICTO ⚡</div>` : ''}
       ${rankBadges? `<div style="margin:6px 0;display:flex;flex-wrap:wrap;gap:4px">${rankBadges}</div>` : ''}
       ${rankInfo}
+      ${profileRankSection}
       <div class="badge-row">${fighterStatusPill(f)}<span class="pill">${divName(f.division)}</span><span class="pill">${f.country}</span></div>
       ${(f.status==='active'||f.status==='injured')?`<details style="margin:4px 0">
         <summary style="cursor:pointer;font-size:.72rem;color:#888">⚖️ Cambiar de categoría</summary>
@@ -3798,6 +3840,10 @@ function openFighterModal(fid, context){
   document.getElementById('modalClose').onclick=closeModal;
   if(prevId) document.getElementById('modalPrev').onclick=()=>openFighterModal(prevId, context);
   if(nextId) document.getElementById('modalNext').onclick=()=>openFighterModal(nextId, context);
+  const profileRankYearSel=document.getElementById('profileRankYearSel');
+  if(profileRankYearSel) profileRankYearSel.onchange=()=>{ UI.profileRankYear=profileRankYearSel.value; UI.profileRankOpen=true; openFighterModal(fid, context); };
+  const profileRankDetails=document.getElementById('profileRankDetails');
+  if(profileRankDetails) profileRankDetails.addEventListener('toggle', ()=>{ UI.profileRankOpen=profileRankDetails.open; });
   document.getElementById('editThis').onclick=()=>{ closeModal(); UI.tab='editor'; UI.selectedFighter=f.id; render(); };
   const cutBtn=document.getElementById('cutFighter');
   if(cutBtn) cutBtn.onclick=()=>{
@@ -6722,7 +6768,12 @@ function bindComparator(){
 function saveRankingSnapshot(eventId, eventDate){
   if(!STATE.rankingHistory) STATE.rankingHistory=[];
   const snapshot={eventId, date:eventDate,
-    p4p:p4pTop15().map((f,i)=>({id:f.id,name:f.name,pos:i+1})), divisions:{}, divisionsFull:{}};
+    p4p:p4pTop15().map((f,i)=>({id:f.id,name:f.name,pos:i+1})),
+    // Ranking P4P COMPLETO (no solo top 15) — mismo motivo que divisionsFull: sin esto, un
+    // peleador que cae fuera del top 15 de P4P desaparece del todo de su gráfico histórico en vez
+    // de mostrar su caída y posterior recuperación real.
+    p4pFull:p4pFullList().map((f,i)=>({id:f.id,name:f.name,pos:i+1})),
+    divisions:{}, divisionsFull:{}};
   DIVISIONS.forEach(d=>{
     snapshot.divisions[d.id]=divisionTop15(d.id).map((f,i)=>({id:f.id,name:f.name,pos:i+1}));
     // Ranking COMPLETO (no solo top 15) — para que la flecha de tendencia sepa el puesto real de
@@ -6732,6 +6783,29 @@ function saveRankingSnapshot(eventId, eventDate){
   });
   STATE.rankingHistory.push(snapshot);
   if(STATE.rankingHistory.length>50) STATE.rankingHistory.shift();
+}
+// Dibuja un gráfico de línea SVG "posición en el tiempo" a partir de una lista de {date,pos}
+// (más arriba = mejor puesto). Extraído de tplRankingHistory() para reutilizarlo también en las
+// mini-gráficas de ranking del propio perfil del peleador — misma lógica, sin duplicarla.
+function rankPositionChartSvg(chartData, W=340, H=150, PAD=32){
+  if(chartData.length<2) return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#0d0d0d;border-radius:8px"><text x="${W/2}" y="${H/2}" fill="#555" font-size="11" text-anchor="middle">Datos insuficientes para ver gráfico</text></svg>`;
+  let svg='';
+  // Escala vertical dinámica: si el peleador ha estado fuera del top 15 en algún punto, el eje
+  // tiene que llegar hasta su peor puesto real, si no la línea se saldría del gráfico.
+  const maxPos=Math.max(15, ...chartData.map(d=>d.pos));
+  const xs=chartData.map((_,i)=>PAD+(i/(chartData.length-1))*(W-PAD*2));
+  const ys=chartData.map(d=>PAD+(d.pos-1)/(maxPos-1)*(H-PAD*2));
+  const gridPositions=maxPos<=15?[1,5,10,15]:[1,5,10,15,maxPos];
+  gridPositions.forEach(p=>{const y=PAD+(p-1)/(maxPos-1)*(H-PAD*2);svg+=`<line x1="${PAD}" y1="${y}" x2="${W-PAD}" y2="${y}" stroke="#222" stroke-width="1"/><text x="${PAD-4}" y="${y+4}" fill="#555" font-size="9" text-anchor="end">#${p}</text>`;});
+  svg+=`<polyline points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}" fill="none" stroke="#d4af37" stroke-width="2.5" stroke-linejoin="round"/>`;
+  chartData.forEach((d,i)=>{
+    svg+=`<circle cx="${xs[i]}" cy="${ys[i]}" r="4" fill="#d4af37"/>`;
+    if(i===0||i===chartData.length-1||chartData.length<=8) svg+=`<text x="${xs[i]}" y="${ys[i]-8}" fill="#d4af37" font-size="8" text-anchor="middle">#${d.pos}</text>`;
+  });
+  // date labels
+  const step=Math.max(1,Math.floor(chartData.length/5));
+  chartData.forEach((d,i)=>{if(i%step===0) svg+=`<text x="${xs[i]}" y="${H-4}" fill="#444" font-size="7" text-anchor="middle">${d.date.slice(5)}</text>`;});
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#0d0d0d;border-radius:8px">${svg}</svg>`;
 }
 function tplRankingHistory(){
   const snaps=STATE.rankingHistory||[];
@@ -6756,46 +6830,27 @@ function tplRankingHistory(){
     const isI=STATE.titles.some(t=>t.interimHolderId===f.id);
     return `<option value="${f.id}">${isC?'🏆 ':isI?'🥈 ':''}${fName(f)}${f.status==='retired'?' (ret.)':''}</option>`;
   }).join('');
-  // IMPORTANTE: usar divisionsFull (ranking COMPLETO), no divisions (recortado al top 15). Si se
-  // usa el recortado, cualquier evento en el que el peleador cayera fuera del top 15 desaparece
-  // del todo del gráfico (su entrada no existe en ese snapshot) — la línea salta directamente del
-  // último punto visible dentro del top 15 al punto en el que reaparece, ocultando por completo
-  // una caída y posterior recuperación real. Eso hacía que el gráfico pareciera contradecir a la
-  // flecha de "Divisiones" (que sí usa divisionsFull): un peleador podía verse "bajando poco a
-  // poco" en este gráfico mientras Divisiones marcaba una subida de +12 en el último evento — en
-  // realidad se había desplomado fuera del top 15 (invisible aquí) y acababa de recuperarse de
-  // golpe. divisionsFull existe para snapshots nuevos; si falta (partidas guardadas antes de que
-  // se guardara ese campo) se recurre al recortado como aproximación.
+  // IMPORTANTE: usar divisionsFull/p4pFull (ranking COMPLETO), no divisions/p4p (recortado al top
+  // 15). Si se usa el recortado, cualquier evento en el que el peleador cayera fuera del top 15
+  // desaparece del todo del gráfico (su entrada no existe en ese snapshot) — la línea salta
+  // directamente del último punto visible dentro del top 15 al punto en el que reaparece,
+  // ocultando por completo una caída y posterior recuperación real. Eso hacía que el gráfico
+  // pareciera contradecir a la flecha de "Divisiones" (que sí usa divisionsFull): un peleador podía
+  // verse "bajando poco a poco" en este gráfico mientras Divisiones marcaba una subida de +12 en
+  // el último evento — en realidad se había desplomado fuera del top 15 (invisible aquí) y acababa
+  // de recuperarse de golpe. divisionsFull/p4pFull existen para snapshots nuevos; si faltan
+  // (partidas guardadas antes de que se guardara ese campo) se recurre al recortado como aproximación.
   const chartData=snaps.map(s=>{
-    const list=selDiv==='p4p'?s.p4p:(s.divisionsFull?.[selDiv]||s.divisions[selDiv]||[]);
+    const list=selDiv==='p4p'?(s.p4pFull||s.p4p):(s.divisionsFull?.[selDiv]||s.divisions[selDiv]||[]);
     const entry=list.find(x=>x.id===selFid);
     return {date:s.date,pos:entry?entry.pos:null};
   }).filter(x=>x.pos!==null);
-  const W=340,H=150,PAD=32;
-  let svg='';
-  if(chartData.length>=2){
-    // Escala vertical dinámica: si el peleador ha estado fuera del top 15 en algún punto, el eje
-    // tiene que llegar hasta su peor puesto real, si no la línea se saldría del gráfico.
-    const maxPos=Math.max(15, ...chartData.map(d=>d.pos));
-    const xs=chartData.map((_,i)=>PAD+(i/(chartData.length-1))*(W-PAD*2));
-    const ys=chartData.map(d=>PAD+(d.pos-1)/(maxPos-1)*(H-PAD*2));
-    const gridPositions=maxPos<=15?[1,5,10,15]:[1,5,10,15,maxPos];
-    gridPositions.forEach(p=>{const y=PAD+(p-1)/(maxPos-1)*(H-PAD*2);svg+=`<line x1="${PAD}" y1="${y}" x2="${W-PAD}" y2="${y}" stroke="#222" stroke-width="1"/><text x="${PAD-4}" y="${y+4}" fill="#555" font-size="9" text-anchor="end">#${p}</text>`;});
-    svg+=`<polyline points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}" fill="none" stroke="#d4af37" stroke-width="2.5" stroke-linejoin="round"/>`;
-    chartData.forEach((d,i)=>{
-      svg+=`<circle cx="${xs[i]}" cy="${ys[i]}" r="4" fill="#d4af37"/>`;
-      if(i===0||i===chartData.length-1||chartData.length<=8) svg+=`<text x="${xs[i]}" y="${ys[i]-8}" fill="#d4af37" font-size="8" text-anchor="middle">#${d.pos}</text>`;
-    });
-    // date labels
-    const step=Math.max(1,Math.floor(chartData.length/5));
-    chartData.forEach((d,i)=>{if(i%step===0) svg+=`<text x="${xs[i]}" y="${H-4}" fill="#444" font-size="7" text-anchor="middle">${d.date.slice(5)}</text>`;});
-  } else svg=`<text x="${W/2}" y="${H/2}" fill="#555" font-size="11" text-anchor="middle">Mínimo 2 eventos para ver gráfico</text>`;
   const lastSnap=snaps[snaps.length-1];
   const tableList=selDiv==='p4p'?lastSnap.p4p:(lastSnap.divisions[selDiv]||[]);
   return `<div class="card"><h2>📈 Historial de Rankings</h2>
     <div class="row"><select id="rhDiv">${divOpts}</select><select id="rhFid">${fOpts}</select></div>
     <div style="margin:12px 0"><div style="font-size:.72rem;color:#666;margin-bottom:4px">Posición de ${STATE.fighters.find(f=>f.id===selFid)?.name||'?'} en el tiempo (más arriba = mejor)</div>
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#0d0d0d;border-radius:8px">${svg}</svg></div>
+    ${rankPositionChartSvg(chartData)}</div>
     <div style="font-size:.72rem;color:#666;margin-bottom:6px">Ranking al último evento (${lastSnap.date})</div>
     <table><thead><tr><th>#</th><th>Nombre</th></tr></thead><tbody>
     ${tableList.map((x,i)=>{const isC=STATE.titles.some(t=>t.holderId===x.id),isI=STATE.titles.some(t=>t.interimHolderId===x.id);return `<tr class="clickable" data-id="${x.id}"><td>${i+1}</td><td>${isC?'🏆 ':isI?'🥈 ':''}${fName(x)}</td></tr>`;}).join('')}
