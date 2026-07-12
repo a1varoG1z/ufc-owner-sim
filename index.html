@@ -3678,40 +3678,48 @@ function openFighterModal(fid, context){
         </div>`;
       })()}
       ${(()=>{
+        // Los premios anuales antes se pintaban como <p class="muted"> planos (gris, sin ningún
+        // acento visual salvo Peleador del Año) — se perdían entre el resto de texto secundario
+        // del perfil. Ahora cada premio es una insignia con su propio color de acento (los mismos
+        // colores que ya se usan en los toasts al entregarse: ver giveAwardsForYear), con borde
+        // lateral y el número de veces en grande, para que un peleador con premios destaque de un
+        // vistazo en vez de haber que leer letra por letra.
         const allAwards = STATE.awards||[];
-        const rows=[];
+        const chips=[];
+        const chip=(icon,label,color,count,detail)=>`<div style="background:${color}1f;border-left:3px solid ${color};border-radius:6px;padding:5px 9px;margin:4px 0;font-size:.78rem;line-height:1.4"><b style="color:${color}">${icon} ${label}</b> <span style="color:#eee;font-weight:800">${count}×</span>${detail?`<div class="muted" style="font-size:.68rem;margin-top:1px">${detail}</div>`:''}</div>`;
         // Peleador del Año
         const foyYears = allAwards.filter(a=>a.fighterOfYear===f.id).map(a=>a.year);
-        if(foyYears.length) rows.push('<p class="muted" style="color:#d4af37;font-weight:700">🏆 Peleador del Año: '+foyYears.length+'× ('+foyYears.join(', ')+')</p>');
+        if(foyYears.length) chips.push(chip('🏆','Peleador del Año','#d4af37',foyYears.length,foyYears.join(', ')));
         // Pelea del Año (ganador o perdedor)
         const fotYears = allAwards.filter(a=>a.fightOfYear&&(a.fightOfYear.fA===f.id||a.fightOfYear.fB===f.id)).map(a=>{
           const oId=a.fightOfYear.fA===f.id?a.fightOfYear.fB:a.fightOfYear.fA;
           const opp=STATE.fighters.find(x=>x.id===oId);
           return a.year+(opp?' vs '+opp.name.split(' ').pop():'');
         });
-        if(fotYears.length) rows.push('<p class="muted">🏅 Pelea del Año: '+fotYears.length+'× · '+fotYears.join(', ')+'</p>');
+        if(fotYears.length) chips.push(chip('🏅','Pelea del Año','#ffd700',fotYears.length,fotYears.join(', ')));
         // KO del Año
         const koYears = allAwards.filter(a=>a.koOfYear?.fA===f.id).map(a=>{
           const opp=STATE.fighters.find(x=>x.id===a.koOfYear.fB);
           return a.year+(opp?' vs '+opp.name.split(' ').pop():'')+' R'+(a.koOfYear.round||'?');
         });
-        if(koYears.length) rows.push('<p class="muted">💥 KO del Año: '+koYears.length+'× · '+koYears.join(', ')+'</p>');
+        if(koYears.length) chips.push(chip('💥','KO del Año','#ef5350',koYears.length,koYears.join(', ')));
         // Sub del Año
         const subYears = allAwards.filter(a=>a.subOfYear?.fA===f.id).map(a=>{
           const opp=STATE.fighters.find(x=>x.id===a.subOfYear.fB);
           return a.year+(opp?' vs '+opp.name.split(' ').pop():'')+' R'+(a.subOfYear.round||'?');
         });
-        if(subYears.length) rows.push('<p class="muted">🤼 Sumisión del Año: '+subYears.length+'× · '+subYears.join(', ')+'</p>');
+        if(subYears.length) chips.push(chip('🤼','Sumisión del Año','#ce93d8',subYears.length,subYears.join(', ')));
         // Actuación del Año
         const perfYears = allAwards.filter(a=>a.performanceOfYear?.fA===f.id).map(a=>a.year);
-        if(perfYears.length) rows.push('<p class="muted">⭐ Actuación del Año: '+perfYears.length+'× ('+perfYears.join(', ')+')</p>');
+        if(perfYears.length) chips.push(chip('⭐','Actuación del Año','#ffd700',perfYears.length,perfYears.join(', ')));
         // Sorpresa del Año
         const upsetYears = allAwards.filter(a=>a.upsetOfYear?.fA===f.id).map(a=>{
           const opp=STATE.fighters.find(x=>x.id===a.upsetOfYear.fB);
           return a.year+(opp?' vs '+opp.name.split(' ').pop():'');
         });
-        if(upsetYears.length) rows.push('<p class="muted">😱 Sorpresa del Año: '+upsetYears.length+'× · '+upsetYears.join(', ')+'</p>');
-        return rows.join('');
+        if(upsetYears.length) chips.push(chip('😱','Sorpresa del Año','#ff7043',upsetYears.length,upsetYears.join(', ')));
+        if(!chips.length) return '';
+        return `<div style="margin:8px 0"><div style="font-size:.62rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🏆 Premios anuales</div>${chips.join('')}</div>`;
       })()}
       ${f.status==='suspended'?`<p style="color:#ef5350;font-weight:600;font-size:.8rem;margin:4px 0">🚫 SANCIONADO — ${f.suspension?.note||'Sanción'} · hasta ${fmtDate(f.suspension?.untilDate)}</p>`:''}
       ${(f.suspension?.history||[]).length>0?`<p class="muted" style="font-size:.72rem">Sanciones en carrera: ${f.suspension.history.length} (${f.suspension.history.filter(s=>s.cat==='doping').length} dopaje)</p>`:''}
